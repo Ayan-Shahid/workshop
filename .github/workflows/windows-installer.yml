@@ -1,0 +1,27 @@
+name: Windows installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run tests
+        run: ./gradlew test
+      - name: Build MSI and EXE installers
+        run: ./gradlew packageMsi packageExe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workshop-manager-installers
+          path: |
+            build/compose/binaries/main/msi/*.msi
+            build/compose/binaries/main/exe/*.exe
