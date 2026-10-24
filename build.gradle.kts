@@ -32,7 +32,7 @@ dependencies {
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21) } }
 java { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
 
-tasks.test { useJUnitPlatform(); forkEvery = 1; testLogging { showStandardStreams = true; exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL } }
+tasks.test { useJUnitPlatform(); forkEvery = 1; if (project.hasProperty("regen")) systemProperty("regen", "1"); testLogging { showStandardStreams = true; exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL } }
 
 compose.desktop {
     application {

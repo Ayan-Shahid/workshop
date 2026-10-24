@@ -16,6 +16,7 @@ import pk.workshop.core.Qty
 import pk.workshop.data.*
 import pk.workshop.db.fail
 import pk.workshop.ui.*
+import pk.workshop.ui.Button
 
 @Composable
 fun PurchasingScreen() {
@@ -80,9 +81,9 @@ fun DocLinesEditor(lines: SnapshotStateList<Triple<Part, Long, Long>>, costLabel
     DataTable(lines.toList(), listOf(
         C("Part", 2.5f) { it.first.name },
         C("Qty", 1f, content = { l -> var t by remember(l) { mutableStateOf(Qty.fmt(l.second)) }
-            OutlinedTextField(t, { t = it; Qty.parse(it)?.let { q -> val i = lines.indexOf(l); if (i >= 0) lines[i] = l.copy(second = q) } }, singleLine = true, modifier = Modifier.width(110.dp).height(52.dp)) }),
+            OutlinedTextField(t, { t = it; Qty.parse(it)?.let { q -> val i = lines.indexOf(l); if (i >= 0) lines[i] = l.copy(second = q) } }, singleLine = true, colors = fieldColors(), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp), modifier = Modifier.width(110.dp).height(52.dp)) }),
         C(costLabel, 1f, content = { l -> var t by remember(l) { mutableStateOf(if (l.third == 0L) "" else Money.plain(l.third).replace(",", "")) }
-            OutlinedTextField(t, { t = it; Money.parse(it)?.let { c -> val i = lines.indexOf(l); if (i >= 0) lines[i] = l.copy(third = c) } }, singleLine = true, modifier = Modifier.width(120.dp).height(52.dp)) }),
+            OutlinedTextField(t, { t = it; Money.parse(it)?.let { c -> val i = lines.indexOf(l); if (i >= 0) lines[i] = l.copy(third = c) } }, singleLine = true, colors = fieldColors(), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp), modifier = Modifier.width(120.dp).height(52.dp)) }),
         C("Amount", 1f, true) { plain(Money.times(it.third, it.second)) },
         C("", 0.4f, content = { l -> IconButton({ lines.remove(l) }) { Icon(Icons.Default.Delete, "Remove") } }),
     ), Modifier.heightIn(max = 340.dp), empty = "Scan or add parts", footer = listOf("${lines.size} items", "", "", plain(lines.sumOf { Money.times(it.third, it.second) }), ""))

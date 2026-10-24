@@ -23,6 +23,7 @@ import pk.workshop.print.Documents
 import pk.workshop.print.Printers
 import pk.workshop.security.Vault
 import pk.workshop.ui.*
+import pk.workshop.ui.Button
 
 @Composable
 fun SettingsScreen() {

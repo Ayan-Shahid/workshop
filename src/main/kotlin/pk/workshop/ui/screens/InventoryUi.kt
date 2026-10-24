@@ -19,6 +19,7 @@ import pk.workshop.io.Excel
 import pk.workshop.print.Documents
 import pk.workshop.print.Printers
 import pk.workshop.ui.*
+import pk.workshop.ui.Button
 
 @Composable
 fun InventoryScreen() {
@@ -152,7 +153,7 @@ private fun CountsTab() {
             DataTable(lines, listOf(C("Shelf", 0.6f) { it.location }, C("Part", 2f) { it.name }, C("System", 0.8f, true) { Qty.fmt(it.system) },
                 C("Counted", 1f, content = { l -> if (status == "Open") {
                     var t by remember(l.id, l.counted) { mutableStateOf(Qty.fmt(l.counted)) }
-                    OutlinedTextField(t, { t = it; Qty.parse(it)?.let { q -> Inventory.setCounted(l.id, q) } }, singleLine = true, modifier = Modifier.width(110.dp).height(52.dp))
+                    OutlinedTextField(t, { t = it; Qty.parse(it)?.let { q -> Inventory.setCounted(l.id, q) } }, singleLine = true, colors = fieldColors(), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp), modifier = Modifier.width(110.dp).height(52.dp))
                 } else Text(Qty.fmt(l.counted)) }),
                 C("Difference", 0.8f, true, content = { l -> val d = l.counted - l.system; Text(if (d == 0L) "" else Qty.fmt(d), color = if (d < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary) })),
                 Modifier.heightIn(max = 460.dp))

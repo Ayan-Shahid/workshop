@@ -87,17 +87,14 @@ sealed class Screen(val title: String) {
 fun Field(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, singleLine: Boolean = true, minLines: Int = 1,
           enabled: Boolean = true, password: Boolean = false, numeric: Boolean = false, error: String? = null, trailing: (@Composable () -> Unit)? = null,
           placeholder: String? = null, onEnter: (() -> Unit)? = null, focus: FocusRequester? = null) {
-    OutlinedTextField(
-        value = value, onValueChange = onChange, label = { Text(label) }, singleLine = singleLine, minLines = minLines, enabled = enabled,
-        modifier = modifier.let { m -> focus?.let { m.focusRequester(it) } ?: m }.let { m ->
-            if (onEnter != null) m.onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && (it.key == Key.Enter || it.key == Key.NumPadEnter)) { onEnter(); true } else false } else m
-        },
-        visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+    LabeledBox(label, value, onChange, modifier, singleLine = singleLine, minLines = minLines, enabled = enabled, error = error,
+        placeholder = placeholder, trailing = trailing,
+        visual = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = if (numeric) KeyboardType.Decimal else if (password) KeyboardType.Password else KeyboardType.Text, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { onEnter?.invoke() }),
-        isError = error != null, supportingText = error?.let { { Text(it) } }, trailingIcon = trailing,
-        placeholder = placeholder?.let { { Text(it) } },
-    )
+        fieldModifier = Modifier.let { m -> focus?.let { m.focusRequester(it) } ?: m }.let { m ->
+            if (onEnter != null) m.onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && (it.key == Key.Enter || it.key == Key.NumPadEnter)) { onEnter(); true } else false } else m
+        })
 }
 
 /** Money input that keeps the user's text and reports paisa (null when invalid). */
@@ -130,10 +127,10 @@ fun DateField(label: String, iso: String, onChange: (String) -> Unit, modifier: 
 fun <T> Dropdown(label: String, options: List<T>, selected: T?, onSelect: (T) -> Unit, modifier: Modifier = Modifier, text: (T) -> String = { it.toString() }) {
     var open by remember { mutableStateOf(false) }
     Box(modifier) {
-        OutlinedTextField(value = selected?.let(text) ?: "", onValueChange = {}, readOnly = true, label = { Text(label) }, singleLine = true,
-            trailingIcon = { Icon(Icons.Default.ArrowDropDown, null) }, modifier = Modifier.fillMaxWidth())
-        Box(Modifier.matchParentSize().clip(RoundedCornerShape(4.dp)).clickable { open = true })
-        DropdownMenu(open, { open = false }) {
+        LabeledBox(label, selected?.let(text) ?: "", {}, Modifier.fillMaxWidth(), readOnly = true, trailing = { Icon(Icons.Default.ArrowDropDown, null) })
+        Box(Modifier.matchParentSize().clip(RoundedCornerShape(8.dp)).clickable { open = true })
+        DropdownMenu(open, { open = false }, shape = RoundedCornerShape(10.dp), containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp, shadowElevation = 0.dp, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
             options.forEach { o -> DropdownMenuItem(text = { Text(text(o)) }, onClick = { onSelect(o); open = false }) }
         }
     }
@@ -148,7 +145,7 @@ fun Check(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 
 @Composable
 fun SearchBox(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, hint: String = "Search", onEnter: (() -> Unit)? = null, focus: FocusRequester? = null) {
-    Field(hint, value, onChange, modifier.widthIn(min = 240.dp), trailing = { Icon(Icons.Default.Search, null) }, onEnter = onEnter, focus = focus)
+    Field(hint, value, onChange, modifier.widthIn(min = 240.dp), trailing = { Icon(Icons.Default.Search, null) }, onEnter = onEnter, focus = focus, placeholder = "Type to search")
 }
 
 /** A text box for USB barcode scanners (they type the code and press Enter). */
@@ -156,7 +153,7 @@ fun SearchBox(value: String, onChange: (String) -> Unit, modifier: Modifier = Mo
 fun ScanBox(onScan: (String) -> Unit, modifier: Modifier = Modifier, hint: String = "Scan or type a barcode, then Enter") {
     var t by remember { mutableStateOf("") }
     val f = remember { FocusRequester() }
-    Field(hint, t, { t = it }, modifier.widthIn(min = 280.dp), trailing = { Icon(Icons.Default.QrCodeScanner, null) },
+    Field(hint, t, { t = it }, modifier.widthIn(min = 280.dp), trailing = { Icon(Icons.Default.QrCodeScanner, null) }, placeholder = "Scan, or type and press Enter",
         onEnter = { val c = t.trim(); t = ""; if (c.isNotEmpty()) onScan(c) }, focus = f)
     LaunchedEffect(Unit) { try { f.requestFocus() } catch (_: Exception) {} }
 }
@@ -177,8 +174,7 @@ fun Page(title: String, actions: @Composable RowScope.() -> Unit = {}, back: Boo
 
 @Composable
 fun Section(title: String? = null, modifier: Modifier = Modifier, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    Surface(modifier, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+    Surface(modifier.carbonCard(), shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
         Column(Modifier.padding(16.dp)) {
             if (title != null) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -191,9 +187,10 @@ fun Section(title: String? = null, modifier: Modifier = Modifier, actions: @Comp
 
 @Composable
 fun Stat(label: String, value: String, modifier: Modifier = Modifier, accent: Boolean = false, icon: ImageVector? = null, onClick: (() -> Unit)? = null) {
-    Surface(modifier.let { if (onClick != null) it.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick) else it }, shape = RoundedCornerShape(12.dp),
-        color = if (accent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface, tonalElevation = 1.dp,
-        border = if (accent) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+    val shape = RoundedCornerShape(12.dp)
+    Surface(modifier.then(if (accent) Modifier.meshFill(shape) else Modifier.carbonCard(shape))
+        .let { if (onClick != null) it.clip(shape).clickable(onClick = onClick) else it }, shape = shape,
+        color = Color.Transparent, contentColor = if (accent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (icon != null) Icon(icon, null, Modifier.size(18.dp).padding(end = 4.dp), tint = if (accent) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
@@ -244,10 +241,9 @@ class C<T>(val title: String, val weight: Float = 1f, val end: Boolean = false, 
 @Composable
 fun <T> DataTable(rows: List<T>, cols: List<C<T>>, modifier: Modifier = Modifier, onClick: ((T) -> Unit)? = null, empty: String = "Nothing here yet",
                   footer: List<String>? = null) {
-    Surface(modifier, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))) {
+    Surface(modifier.carbonCard(), shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
         Column {
-            Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.88f)).padding(horizontal = 12.dp, vertical = 10.dp)) {
                 cols.forEach { c -> Text(c.title, Modifier.weight(c.weight), style = MaterialTheme.typography.labelLarge, textAlign = if (c.end) TextAlign.End else TextAlign.Start, maxLines = 1) }
             }
             if (rows.isEmpty()) Empty(empty)
@@ -256,7 +252,7 @@ fun <T> DataTable(rows: List<T>, cols: List<C<T>>, modifier: Modifier = Modifier
                     val src = remember { MutableInteractionSource() }
                     val hovered by src.collectIsHoveredAsState()
                     Row(Modifier.fillMaxWidth()
-                        .background(if (hovered && onClick != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else if (i % 2 == 1) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent)
+                        .background(if (hovered && onClick != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else if (i % 2 == 1) MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f) else Color.Transparent)
                         .hoverable(src).let { m -> if (onClick != null) m.clickable { onClick(r) } else m }
                         .padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                         cols.forEach { c ->
@@ -267,7 +263,7 @@ fun <T> DataTable(rows: List<T>, cols: List<C<T>>, modifier: Modifier = Modifier
                     }
                 }
             }
-            if (footer != null) Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(horizontal = 12.dp, vertical = 10.dp)) {
+            if (footer != null) Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.88f)).padding(horizontal = 12.dp, vertical = 10.dp)) {
                 // A footer with only its first entry is a summary line across the whole table
                 if (footer.drop(1).all { it.isEmpty() }) Text(footer.firstOrNull() ?: "", fontWeight = FontWeight.SemiBold, maxLines = 1)
                 else cols.forEachIndexed { i, c -> Text(footer.getOrElse(i) { "" }, Modifier.weight(c.weight), fontWeight = FontWeight.SemiBold, textAlign = if (c.end) TextAlign.End else TextAlign.Start, maxLines = 1) }
@@ -282,7 +278,8 @@ fun <T> DataTable(rows: List<T>, cols: List<C<T>>, modifier: Modifier = Modifier
 fun FormDialog(title: String, onDismiss: () -> Unit, onSave: (() -> Unit)?, saveText: String = "Save", width: Dp = 560.dp,
                extraButtons: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp, modifier = Modifier.width(width).heightIn(max = 760.dp)) {
+        Surface(shape = RoundedCornerShape(16.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.width(width).heightIn(max = 760.dp).carbonCard(RoundedCornerShape(16.dp))) {
             Column(Modifier.padding(24.dp)) {
                 Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
@@ -298,8 +295,7 @@ fun FormDialog(title: String, onDismiss: () -> Unit, onSave: (() -> Unit)?, save
 
 @Composable
 fun Confirm(title: String, text: String, yes: String = "Yes", onYes: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { Text(text) },
-        confirmButton = { Button({ onYes(); onDismiss() }) { Text(yes) } }, dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
+    FormDialog(title, onDismiss, { onYes(); onDismiss() }, saveText = yes, width = 460.dp) { Text(text) }
 }
 
 /** Searchable picker for parts, customers, vehicles and so on. */
@@ -341,7 +337,7 @@ object FilePick {
 
 @Composable
 fun Toolbar(content: @Composable RowScope.() -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom, content = content)
 }
 
 @Composable

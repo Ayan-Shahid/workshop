@@ -22,6 +22,7 @@ import pk.workshop.print.Documents
 import pk.workshop.print.Printers
 import pk.workshop.print.WhatsApp
 import pk.workshop.ui.*
+import pk.workshop.ui.Button
 
 @Composable
 fun BookingsScreen() {
@@ -247,7 +248,7 @@ fun CounterSaleScreen(customerId: Long?) {
 @Composable
 private fun CartNumber(value: String, onChange: (String) -> Unit) {
     var t by remember(value) { mutableStateOf(value) }
-    OutlinedTextField(t, { t = it; onChange(it) }, singleLine = true, modifier = Modifier.width(110.dp).height(52.dp), textStyle = MaterialTheme.typography.bodyMedium)
+    OutlinedTextField(t, { t = it; onChange(it) }, singleLine = true, colors = fieldColors(), shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp), modifier = Modifier.width(110.dp).height(52.dp), textStyle = MaterialTheme.typography.bodyMedium)
 }
 
 /** Takes one or more payments against a just-made invoice (cash + JazzCash, etc.). */
@@ -281,7 +282,7 @@ fun SplitPaymentDialog(inv0: Invoice, onDone: () -> Unit) {
 private fun CustomerDisplay(items: List<Pair<String, Long>>, total: Long) {
     Window(onCloseRequest = {}, title = "Customer display", state = rememberWindowState(width = 640.dp, height = 480.dp)) {
         AppTheme("dark") {
-            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Surface(Modifier.fillMaxSize().carbonBackground(), color = androidx.compose.ui.graphics.Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) {
                 Column(Modifier.padding(32.dp)) {
                     Text(Settings.get(Settings.BUSINESS), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(16.dp))

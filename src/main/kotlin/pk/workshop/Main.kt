@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
@@ -54,7 +55,7 @@ fun app() = application {
     ) {
         window.minimumSize = java.awt.Dimension(1100, 700)
         AppTheme(App.theme) {
-            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Surface(Modifier.fillMaxSize().carbonBackground(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) {
                 if (!App.loggedIn) LoginScreen(onLoggedIn = ::afterLogin) else Shell()
             }
         }
@@ -103,7 +104,8 @@ fun Shell() {
         App.message = null
     }
     Row(Modifier.fillMaxSize()) {
-        Column(Modifier.width(232.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface).padding(12.dp)) {
+        // Sidebar: solid woven-carbon panel, same surface as the cards
+        Column(Modifier.width(232.dp).fillMaxHeight().carbonCard(androidx.compose.ui.graphics.RectangleShape, border = false).padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp, top = 8.dp, bottom = 16.dp)) {
                 Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp)) {
                     Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.CarRepair, null, tint = MaterialTheme.colorScheme.onPrimary) }

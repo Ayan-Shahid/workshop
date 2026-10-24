@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.sp
 import pk.workshop.db.AppError
 import pk.workshop.security.Vault
 import pk.workshop.ui.Field
+import pk.workshop.ui.Button
+import pk.workshop.ui.carbonCard
 
 @Composable
 fun LoginScreen(onLoggedIn: () -> Unit) {
@@ -35,7 +37,7 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
     }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Surface(shape = RoundedCornerShape(20.dp), tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surface, modifier = Modifier.width(440.dp)) {
+        Surface(shape = RoundedCornerShape(20.dp), color = androidx.compose.ui.graphics.Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface, modifier = Modifier.carbonCard(RoundedCornerShape(20.dp)).width(440.dp)) {
             Column(Modifier.padding(32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp)) {
