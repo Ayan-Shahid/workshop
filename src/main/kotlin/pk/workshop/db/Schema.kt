@@ -5,17 +5,42 @@ package pk.workshop.db
  * tax rates are basis points (1800 = 18%). Dates are ISO text.
  */
 object Schema {
-    private const val VERSION = 1
+    /**
+     * Each entry upgrades the database by one version and runs once, in its own transaction.
+     * To change the schema in a new release, ADD an entry at the end (never edit an old one):
+     *   { Db.script("ALTER TABLE parts ADD COLUMN hs_code TEXT;") },
+     * The schema version is the number of entries.
+     */
+    private val MIGRATIONS: List<() -> Unit> = listOf(
+        { Db.script(V1); SeedAccounts.seed() },
+    )
+    val VERSION get() = MIGRATIONS.size
+
+    /** Thrown when the data was last opened by a newer version of the app (e.g. after going back to an older copy). */
+    class NewerDataException(val dataVersion: Int) :
+        IllegalStateException("These records were saved by a newer version of Workshop Manager (data version $dataVersion, this copy understands $VERSION). Install the latest version to open them.")
+
+    /** A schema upgrade failed; its transaction was rolled back, so the records are as they were. */
+    class MigrationException(val toVersion: Int, cause: Throwable) : RuntimeException("upgrade to data version $toVersion failed: ${cause.message}", cause)
+
+    fun current(): Int = Db.scalarStr("SELECT v FROM meta WHERE k='schema'")?.toIntOrNull() ?: 0
 
     fun migrate() {
         Db.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
-        val v = Db.scalarStr("SELECT v FROM meta WHERE k='schema'")?.toIntOrNull() ?: 0
-        if (v < 1) {
-            Db.tx {
-                Db.script(V1)
-                SeedAccounts.seed()
-                Db.exec("INSERT OR REPLACE INTO meta(k,v) VALUES('schema', ?)", VERSION.toString())
-            }
+        val v = current()
+        if (v > VERSION) throw NewerDataException(v)
+        if (v in 1 until VERSION) {
+            // Keep a copy of the (still encrypted) database as it was before this upgrade
+            Db.checkpoint()
+            Db.file.copyTo(java.io.File(Db.file.parentFile, "${Db.file.name}.before-v${VERSION}"), overwrite = true)
+        }
+        for (i in v until VERSION) {
+            try {
+                Db.tx {
+                    MIGRATIONS[i]()
+                    Db.exec("INSERT OR REPLACE INTO meta(k,v) VALUES('schema', ?)", (i + 1).toString())
+                }
+            } catch (e: Exception) { throw MigrationException(i + 1, e) }
         }
     }
 

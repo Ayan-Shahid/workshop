@@ -20,7 +20,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun PurchasingScreen() {
-    var tab by remember { mutableStateOf(App.takeTab("Purchasing")) }
+    var tab by rememberTab("Purchasing")
     Page("Purchasing") {
         Tabs(listOf("Suppliers", "Purchase bills", "Purchase orders", "Returns", "Warranty claims"), tab) { tab = it }
         when (tab) { 0 -> SuppliersTab(); 1 -> BillsTab(); 2 -> OrdersTab(); 3 -> ReturnsTab(); 4 -> ClaimsTab() }
@@ -40,7 +40,7 @@ private fun SuppliersTab() {
     DataTable(list, listOf(C("Supplier", 2f) { it.name }, C("Phone", 1f) { it.phone }, C("NTN", 1f) { it.ntn },
         C("We owe", 1f, true) { plain(balances[it.id] ?: 0) },
         C("", 2f, content = { s -> Row {
-            TextButton({ pay = s }) { Text("Pay") }; TextButton({ stmt = s }) { Text("Statement") }; TextButton({ opening = s }) { Text("Opening balance") }
+            TextButton({ pay = s }) { BtnText("Pay") }; TextButton({ stmt = s }) { BtnText("Statement") }; TextButton({ opening = s }) { Text("Opening balance") }
         } })), Modifier.fillMaxSize(), onClick = { edit = it }, footer = listOf("${list.size}", "", "", plain(balances.values.sum()), ""))
     edit?.let { s0 ->
         var s by remember(s0) { mutableStateOf(s0) }
@@ -158,7 +158,7 @@ private fun OrdersTab() {
     DataTable(orders, listOf(C("PO", 1f) { it.str("po_no") }, C("Date", 0.8f) { Dates.show(it.str("date")) }, C("Supplier", 1.6f) { it.str("sname") },
         C("Value", 1f, true) { plain(it.long("total")) }, C("Status", 0.9f, content = { Chip(it.str("status")) }),
         C("", 1.6f, content = { o -> if (o.str("status") == "Open") Row {
-            TextButton({ receive = o.long("id") }) { Text("Goods arrived") }
+            TextButton({ receive = o.long("id") }) { BtnText("Goods arrived") }
             TextButton({ App.act("Order cancelled") { Purchasing.cancelOrder(o.long("id")) } }) { Text("Cancel") }
         } })), Modifier.fillMaxSize(), onClick = { view = it.long("id") }, empty = "No purchase orders")
     if (create) {

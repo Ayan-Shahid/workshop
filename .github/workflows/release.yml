@@ -1,0 +1,94 @@
+name: Release
+
+# Publishes a new version. Installed copies at the workshop pick it up by themselves within a few hours.
+#
+# Two ways to start it:
+#   - Actions > Release > Run workflow: type the notes (and a version, or leave it empty for the next number).
+#   - Or push a tag:  git tag -a v1.2.0 -m "What changed"  &&  git push origin v1.2.0
+#
+# Needs the repository secret UPDATE_SIGNING_KEY (see RELEASING.md).
+# Optional: repository variable RELEASES_REPO (owner/name of a separate public repo for the downloads)
+#           plus secret RELEASES_TOKEN (a token that can create releases there). Without them, releases go to this repo.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number, e.g. 1.2.0 (leave empty for the next one)"
+        required: false
+      notes:
+        description: "What changed (shown in the app before installing)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASES_REPO: ${{ vars.RELEASES_REPO || github.repository }}
+      GH_TOKEN: ${{ secrets.RELEASES_TOKEN || secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Work out version and notes
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.txt
+          else
+            V="${INPUT_VERSION#v}"
+            if [ -z "$V" ]; then
+              LAST="$(gh release view --repo "$RELEASES_REPO" --json tagName -q .tagName 2>/dev/null || true)"; LAST="${LAST#v}"; LAST="${LAST:-1.0.0}"
+              IFS=. read -r MA MI PA <<< "$LAST"; V="$MA.$MI.$((${PA:-0} + 1))"
+            fi
+            printf '%s\n' "$INPUT_NOTES" > notes.txt
+          fi
+          [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version must look like 1.2.3 (got '$V')"; exit 1; }
+          if [ "${GITHUB_REF_TYPE}" != "tag" ] && gh release view "v$V" --repo "$RELEASES_REPO" >/dev/null 2>&1; then echo "::error::v$V is already released"; exit 1; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Releasing $V"; cat notes.txt
+
+      - name: Check the signing key is set
+        env: { UPDATE_SIGNING_KEY: "${{ secrets.UPDATE_SIGNING_KEY }}" }
+        run: '[ -n "$UPDATE_SIGNING_KEY" ] || { echo "::error::Add the UPDATE_SIGNING_KEY secret (see RELEASING.md)"; exit 1; }'
+
+      - name: Tests
+        run: ./gradlew test
+
+      - name: Build packages and signed update list
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          UPDATE_FEED: https://github.com/${{ env.RELEASES_REPO }}/releases/latest/download/latest.json
+          RELEASE_BASE: https://github.com/${{ env.RELEASES_REPO }}/releases/download/v${{ steps.v.outputs.version }}
+          RELEASE_NOTES: notes.txt
+        run: packaging/package.sh "${{ steps.v.outputs.version }}"
+
+      - name: Publish the release
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          cd build/release
+          TARGET=(); [ "$RELEASES_REPO" = "$GITHUB_REPOSITORY" ] && TARGET=(--target "$GITHUB_SHA")
+          gh release create "v$V" --repo "$RELEASES_REPO" "${TARGET[@]}" --title "Workshop Manager $V" --notes-file ../../notes.txt \
+            WorkshopManager-Windows-$V.zip WorkshopManager-Mac-$V.zip
+          # The program's jars, which installed copies download (only the changed ones)
+          gh release upload "v$V" --repo "$RELEASES_REPO" updates/*.jar
+          # Last: the signed list. Until it's there, installed copies still see the previous version.
+          gh release upload "v$V" --repo "$RELEASES_REPO" latest.json
+          # Separate downloads repo: also mark the version in this repo
+          if [ "$RELEASES_REPO" != "$GITHUB_REPOSITORY" ] && [ "${GITHUB_REF_TYPE}" != "tag" ]; then git tag "v$V" && git push origin "v$V"; fi
+          echo "### Released $V" >> "$GITHUB_STEP_SUMMARY"
+          echo "Installed copies update within a few hours. New PCs: download WorkshopManager-Windows-$V.zip or WorkshopManager-Mac-$V.zip from https://github.com/$RELEASES_REPO/releases/latest" >> "$GITHUB_STEP_SUMMARY"

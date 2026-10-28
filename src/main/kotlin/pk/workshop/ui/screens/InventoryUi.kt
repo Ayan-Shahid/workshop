@@ -23,7 +23,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun InventoryScreen() {
-    var tab by remember { mutableStateOf(App.takeTab("Inventory")) }
+    var tab by rememberTab("Inventory")
     Page("Inventory") {
         Tabs(listOf("Parts", "Stock counts", "Price update", "Stock movements"), tab) { tab = it }
         when (tab) { 0 -> PartsTab(); 1 -> CountsTab(); 2 -> PriceTab(); 3 -> MovesTab() }
@@ -143,7 +143,7 @@ private fun CountsTab() {
         val status = remember(App.version, id) { counts.firstOrNull { it.long("id") == id }?.str("status") ?: "Open" }
         var last by remember { mutableStateOf("") }
         FormDialog("Stock count #$id", { open = null }, null, width = 900.dp, extraButtons = {
-            if (status == "Open") Button({ if (App.act("Count approved; stock adjusted") { Inventory.approveCount(id) }) open = null }) { Text("Approve count") }
+            if (status == "Open") Button({ if (App.act("Count approved; stock adjusted") { Inventory.approveCount(id) }) open = null }) { BtnText("Approve count") }
         }) {
             if (status == "Open") {
                 ScanBox({ c -> last = Inventory.scanCount(id, c); App.refresh() }, Modifier.fillMaxWidth(), "Scan each item (adds 1 to its count)")

@@ -1,0 +1,52 @@
+WORKSHOP MANAGER - READ ME FIRST
+================================
+
+Needs: a Windows 10 or 11 laptop/PC (64-bit). Nothing else to install.
+
+
+1. PUT IT IN A PERMANENT PLACE
+   - Right-click the zip file > Extract All... > choose C:\ and press Extract.
+     You will get the folder C:\Workshop Manager
+   - Do not run it from inside the zip or from the Downloads folder.
+
+2. MAKE A DESKTOP SHORTCUT
+   - Open C:\Workshop Manager
+   - Right-click "Workshop Manager.exe" > Show more options > Send to > Desktop (create shortcut)
+
+3. FIRST START
+   - Double-click the shortcut.
+   - If Windows shows "Windows protected your PC": click "More info", then "Run anyway".
+     (This appears because the app isn't signed with a paid certificate. It's safe.)
+   - Create the admin username and password.
+   - WRITE DOWN THE RECOVERY CODE it shows and keep it safe. It is the only way back in
+     if the password is forgotten.
+   - A short tour and a "Getting started" list then walk you through setting up.
+
+
+TRY IT WITH SAMPLE DATA FIRST (optional)
+   - Double-click "Workshop Manager - Sample data.exe"
+   - Log in with:  admin  /  demo123
+   - It has four months of a pretend workshop to practise on. It is kept completely
+     separate, so it never mixes with your real records.
+
+
+IF THE APP DOESN'T OPEN
+   - Double-click "Start Workshop Manager (backup way).bat"
+   - If an antivirus blocks "Workshop Manager.exe", allow it, or use the .bat file above.
+
+
+WHERE YOUR DATA IS
+   - Records (encrypted):   %APPDATA%\WorkshopManager
+   - Bills, reports, PDFs:  Documents\Workshop Manager
+   - Backups:               made every day automatically; choose a USB or Google Drive
+                            folder for them in Settings > Backup.
+
+
+UPDATES
+   - The app updates itself. When the PC is online it checks for a new version every
+     few hours, downloads it in the background and makes a backup of your records.
+     The new version starts the next time the app is opened (or click "Restart now").
+   - See or change this in Settings > Updates.
+   - If a new version ever fails to start, the app goes back to the previous one by itself.
+   - Keep the folder somewhere Windows lets you change, like C:\Workshop Manager
+     (not inside Program Files), so updates can be saved.

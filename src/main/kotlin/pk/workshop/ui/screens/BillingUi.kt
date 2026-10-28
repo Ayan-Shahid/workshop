@@ -39,7 +39,7 @@ fun BookingsScreen() {
             C("Status", 1f, content = { Chip(it.status) }),
             C("", 1.6f, content = { b ->
                 Row {
-                    if (b.status == "Booked") TextButton({ toJob = b }) { Text("Car arrived") }
+                    if (b.status == "Booked") TextButton({ toJob = b }) { BtnText("Car arrived") }
                     IconButton({ App.act { WhatsApp.send(b.phone, WhatsApp.bookingText(b), "booking", b.id) } }) { Icon(Icons.Default.Chat, "WhatsApp") }
                     if (b.status == "Booked") IconButton({ App.act("Cancelled") { Bookings.setStatus(b.id, "Cancelled") } }) { Icon(Icons.Default.Close, "Cancel") }
                 }
@@ -82,7 +82,7 @@ fun BookingsScreen() {
 
 @Composable
 fun BillingScreen() {
-    var tab by remember { mutableStateOf(App.takeTab("Billing")) }
+    var tab by rememberTab("Billing")
     Page("Billing", actions = { Button({ App.go(Screen.CounterSale()) }) { IconText(Icons.Default.PointOfSale, "Counter sale") } }) {
         Tabs(listOf("Invoices", "Payments received", "Cheques", "FBR queue"), tab) { tab = it }
         when (tab) { 0 -> InvoicesTab(); 1 -> PaymentsTab(); 2 -> ChequesTab(); 3 -> FbrTab() }
@@ -130,7 +130,7 @@ private fun ChequesTab() {
     DataTable(list, listOf(C("Cheque date", 1f) { Dates.show(it.str("cheque_date")) }, C("Customer", 1.6f) { it.str("party") }, C("Cheque / bank", 1.5f) { it.str("reference") },
         C("Amount", 1f, true) { plain(it.long("amount")) }, C("Status", 0.9f, content = { Chip(it.str("cheque_status")) }),
         C("", 1.6f, content = { r -> if (r.str("cheque_status") == "In hand") Row {
-            TextButton({ App.act("Cheque cleared") { Billing.chequeCleared(r.long("id")) } }) { Text("Cleared") }
+            TextButton({ App.act("Cheque cleared") { Billing.chequeCleared(r.long("id")) } }) { BtnText("Cleared") }
             TextButton({ App.act("Marked bounced; amount is owed again") { Billing.chequeBounced(r.long("id")) } }) { Text("Bounced", color = MaterialTheme.colorScheme.error) }
         } })), Modifier.fillMaxSize(), empty = "No cheques")
 }
@@ -203,7 +203,7 @@ fun CounterSaleScreen(customerId: Long?) {
             Section("Bill", Modifier.weight(1f).fillMaxHeight()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(customer?.name ?: "Walk-in customer", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                    TextButton({ pickCust = true }) { Text("Customer") }
+                    TextButton({ pickCust = true }) { BtnText("Customer") }
                 }
                 customer?.let { c -> Text("Owes ${Money.rs(Customers.balance(c.id))} · ${c.points} points", style = MaterialTheme.typography.bodySmall) }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -218,11 +218,11 @@ fun CounterSaleScreen(customerId: Long?) {
                 }
                 Spacer(Modifier.weight(1f))
                 Button({ post()?.let { id -> lastInv = id; payFor = id } }, Modifier.fillMaxWidth().height(52.dp), enabled = cart.isNotEmpty()) {
-                    Text("Take payment", fontSize = 18.sp)
+                    BtnText("Take payment", fontSize = 18.sp)
                 }
                 OutlinedButton({ if (customer == null) App.toast("Choose the customer for a credit sale.") else post()?.let { id ->
                     lastInv = id; Customers.creditWarning(customer!!.id, 0)?.let { App.toast(it) }; cart.clear(); discount = 0; App.act { Printers.receipt(id) } } },
-                    Modifier.fillMaxWidth().padding(top = 8.dp), enabled = cart.isNotEmpty()) { Text("Sell on credit (udhaar)") }
+                    Modifier.fillMaxWidth().padding(top = 8.dp), enabled = cart.isNotEmpty()) { BtnText("Sell on credit (udhaar)") }
             }
         }
     }

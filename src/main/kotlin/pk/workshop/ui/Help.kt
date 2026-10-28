@@ -44,8 +44,12 @@ object Help {
     val anchors = mutableStateMapOf<String, Rect>()
     var tourOpen by mutableStateOf(false)
     var step by mutableStateOf(0)
+    /** The tour being shown: the welcome tour, a screen tour or a training lesson. */
+    var active by mutableStateOf<List<TourStep>>(emptyList())
+    var activeId by mutableStateOf("main")
 
-    class TourStep(val anchor: String?, val title: String, val text: String)
+    /** One step: what to point at, what to say, and optionally where to go first (a screen, tab or job card). */
+    class TourStep(val anchor: String?, val title: String, val text: String, val go: (() -> Unit)? = null)
 
     val tour = listOf(
         TourStep(null, "Welcome to Workshop Manager", "This short tour shows where everything is. It takes about a minute. You can replay it any time from Help & tour at the bottom of the menu."),
@@ -60,12 +64,30 @@ object Help {
         TourStep("nav.Bookkeeping", "Bookkeeping", "Bills, payments and purchases post to the books by themselves. You only add shop expenses, close the cash each evening and, once a month, tick off the bank statement."),
         TourStep("nav.Reports", "Reports", "Sales, profit, stock, money owed, technician work and tax. Every report saves as PDF or Excel."),
         TourStep("nav.Settings", "Settings", "Your business details, tax rates, printers, lists, theme, backups and password."),
+        TourStep("nav.Training", "Training", "Step-by-step lessons for every task (a car from check-in to gate pass, counter sales, end of day, end of month) and a tour of each screen. Each screen also shows its own tour the first time you open it."),
         TourStep("dash.guide", "Getting started", "Work down this list to set the workshop up. Each step ticks itself off when it's done, and Go takes you straight there."),
         TourStep("help.button", "Help on every screen", "This button opens short instructions for the screen you're on. They also open by themselves the first time you visit a screen."),
     )
 
-    fun start() { App.go(Screen.Dashboard); step = 0; tourOpen = true }
-    fun finish() { tourOpen = false; Settings.setBool(Guide.TOUR_DONE, true) }
+    fun start() { App.go(Screen.Dashboard); run("main", tour) }
+    fun run(id: String, steps: List<TourStep>) { if (steps.isEmpty()) return; activeId = id; active = steps; step = 0; tourOpen = true }
+    /** Reached the last step: the lesson counts as done. */
+    fun finish() {
+        tourOpen = false
+        if (activeId == "main") Settings.setBool(Guide.TOUR_DONE, true) else Settings.setBool("guide.done.$activeId", true)
+    }
+    /** Skipped part-way: the welcome tour still won't reappear, but a lesson stays unticked. */
+    fun skip() {
+        tourOpen = false
+        if (activeId == "main") Settings.setBool(Guide.TOUR_DONE, true)
+    }
+    fun isDone(id: String) = Settings.bool("guide.done.$id")
+    fun next() { if (step < active.lastIndex) step++ else finish() }
+    fun back() { if (step > 0) step-- }
+    /** Screen tours start by themselves the first time a screen is opened, unless switched off. */
+    var autoTours: Boolean
+        get() = !Settings.bool("guide.autotours.off")
+        set(v) { Settings.setBool("guide.autotours.off", !v) }
 
     /** "How this works" text per screen. */
     fun instructions(s: Screen): List<String>? = when (s) {
@@ -126,6 +148,10 @@ object Help {
         Screen.Reports -> listOf(
             "Pick a report on the left and set the dates (or use Today, This month, This fiscal year).",
             "PDF, Print and Excel save or print exactly what's on screen.")
+        Screen.Training -> listOf(
+            "Lessons walk you through a whole job from start to finish, moving between screens for you.",
+            "Screen tours point at every button on one screen.",
+            "Practise on the Sample data app so nothing you try touches your real records.")
         Screen.Settings -> listOf(
             "Fill in Business first; it prints on every bill.",
             "Backup runs every day by itself; choose a USB or cloud-synced folder for it.",
@@ -148,19 +174,24 @@ fun Modifier.tourAnchor(id: String): Modifier = composed {
 @Composable
 fun TourOverlay() {
     if (!Help.tourOpen) return
-    val steps = Help.tour
+    val steps = Help.active
+    if (steps.isEmpty()) return
     val step = steps[Help.step.coerceIn(0, steps.lastIndex)]
+    LaunchedEffect(Help.activeId, Help.step) { try { step.go?.invoke() } catch (e: Exception) { e.printStackTrace() } }
     val target = step.anchor?.let { Help.anchors[it] }
-    val pad = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // Button targets mark the label inside the button, so widen the lit window to the whole button
+    val padX = with(density) { (if (step.anchor?.startsWith("btn.") == true) 22.dp else 6.dp).toPx() }
+    val padY = with(density) { (if (step.anchor?.startsWith("btn.") == true) 11.dp else 6.dp).toPx() }
     val primary = MaterialTheme.colorScheme.primary
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
-    fun next() { if (Help.step < steps.lastIndex) Help.step++ else Help.finish() }
-    fun back() { if (Help.step > 0) Help.step-- }
+    fun next() = Help.next()
+    fun back() = Help.back()
     Box(Modifier.fillMaxSize()
         .pointerInput(Unit) { detectTapGestures { } }            // the app underneath can't be clicked during the tour
         .onPreviewKeyEvent {
             if (it.type != KeyEventType.KeyDown) false else when (it.key) {
-                Key.Escape -> { Help.finish(); true }
+                Key.Escape -> { Help.skip(); true }
                 Key.Enter, Key.DirectionRight -> { next(); true }
                 Key.DirectionLeft -> { back(); true }
                 else -> false
@@ -172,7 +203,7 @@ fun TourOverlay() {
             val scrim = Color.Black.copy(alpha = 0.6f)
             if (target == null) drawRect(scrim)
             else {
-                val hole = RoundRect(target.left - pad, target.top - pad, target.right + pad, target.bottom + pad, CornerRadius(14f, 14f))
+                val hole = RoundRect(target.left - padX, target.top - padY, target.right + padX, target.bottom + padY, CornerRadius(14f, 14f))
                 val path = Path().apply { fillType = PathFillType.EvenOdd; addRect(Rect(Offset.Zero, size)); addRoundRect(hole) }
                 drawPath(path, scrim)
                 drawRoundRect(primary, Offset(hole.left, hole.top), Size(hole.width, hole.height), CornerRadius(14f, 14f), style = Stroke(width = 3f))
@@ -208,7 +239,7 @@ private fun StepCard(step: Help.TourStep, index: Int, total: Int, next: () -> Un
             Text(step.text, style = MaterialTheme.typography.bodyMedium)
             LinearProgressIndicator({ (index + 1f) / total }, Modifier.fillMaxWidth().padding(top = 4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton({ Help.finish() }) { Text("Skip tour") }
+                TextButton({ Help.skip() }) { Text("Skip tour") }
                 Spacer(Modifier.weight(1f))
                 if (index > 0) OutlinedButton(back) { Text("Back") }
                 Button(next) { Text(if (index == total - 1) "Finish" else "Next") }
@@ -219,7 +250,7 @@ private fun StepCard(step: Help.TourStep, index: Int, total: Int, next: () -> Un
 
 /** "How this works" strip under a page title. */
 @Composable
-fun InstructionsPanel(lines: List<String>, onClose: () -> Unit) {
+fun InstructionsPanel(lines: List<String>, onTour: (() -> Unit)? = null, onClose: () -> Unit) {
     Surface(Modifier.fillMaxWidth().padding(bottom = 12.dp).carbonCard()
         .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
         shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
@@ -228,6 +259,10 @@ fun InstructionsPanel(lines: List<String>, onClose: () -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("How this works", fontWeight = FontWeight.SemiBold)
                 lines.forEach { Text(if (it.firstOrNull()?.isDigit() == true) it else "•  $it", style = MaterialTheme.typography.bodyMedium) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    if (onTour != null) OutlinedButton(onTour) { IconText(Icons.Default.Explore, "Show me around this screen") }
+                    TextButton({ App.go(Screen.Training) }) { Text("All lessons") }
+                }
             }
             IconButton(onClose) { Icon(Icons.Default.Close, "Close") }
         }

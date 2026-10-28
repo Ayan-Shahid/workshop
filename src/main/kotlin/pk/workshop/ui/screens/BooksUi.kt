@@ -23,7 +23,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun BooksScreen() {
-    var tab by remember { mutableStateOf(App.takeTab("Books")) }
+    var tab by rememberTab("Books")
     Page("Bookkeeping") {
         Tabs(listOf("Vouchers", "Expenses", "Cash closing", "Ledger", "Trial balance", "Profit & loss", "Balance sheet", "Cash flow",
             "Bank reconciliation", "Chart of accounts", "Fixed assets", "Opening balances", "Month locks"), tab) { tab = it }
@@ -432,7 +432,7 @@ private fun LocksTab() {
             Text("After the accountant reviews a month, lock it so nothing in it can be changed.")
             Field("Month (yyyy-mm)", month, { month = it }, Modifier.width(200.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button({ App.act("$month locked") { Ledger.lock(month) } }) { Text("Lock") }
+                Button({ App.act("$month locked") { Ledger.lock(month) } }) { BtnText("Lock") }
                 OutlinedButton({ App.act("$month unlocked") { Ledger.unlock(month) } }) { Text("Unlock") }
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))

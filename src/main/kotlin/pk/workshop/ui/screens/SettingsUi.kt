@@ -27,13 +27,13 @@ import pk.workshop.ui.Button
 
 @Composable
 fun SettingsScreen() {
-    var tab by remember { mutableStateOf(App.takeTab("Settings")) }
+    var tab by rememberTab("Settings")
     Page("Settings") {
-        Tabs(listOf("Business", "Tax and FBR", "Printers and machines", "Lists", "Appearance", "Backup", "Password"), tab) { tab = it }
+        Tabs(listOf("Business", "Tax and FBR", "Printers and machines", "Lists", "Appearance", "Backup", "Password", "Updates"), tab) { tab = it }
         // Seeing the tax tab counts as having checked the rates (Getting started)
         LaunchedEffect(tab) { if (tab == 1) pk.workshop.data.Settings.setBool(pk.workshop.data.Guide.TAXES_CHECKED, true) }
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            when (tab) { 0 -> BusinessTab(); 1 -> TaxTab(); 2 -> PrintersTab(); 3 -> ListsTab(); 4 -> AppearanceTab(); 5 -> BackupTab(); 6 -> PasswordTab() }
+            when (tab) { 0 -> BusinessTab(); 1 -> TaxTab(); 2 -> PrintersTab(); 3 -> ListsTab(); 4 -> AppearanceTab(); 5 -> BackupTab(); 6 -> PasswordTab(); 7 -> UpdatesTab() }
         }
     }
 }
@@ -180,9 +180,56 @@ private fun AppearanceTab() {
             }
         }
         Check("Group amounts in lakhs (12,50,000) instead of millions (1,250,000)", lakh) { lakh = it; Settings.setBool(Settings.LAKH, it); Money.lakhGrouping = it; App.refresh() }
+        var tours by remember { mutableStateOf(Help.autoTours) }
+        Check("Show a short guided tour the first time each screen is opened", tours) { tours = it; Help.autoTours = it }
+        Text("Every tour and lesson is also on the Training page, and the ? next to each screen title explains that screen.", style = MaterialTheme.typography.bodySmall)
         Text("Shortcuts: F2 job cards · F3 counter sale · F4 customers · F5 inventory · F6 billing", style = MaterialTheme.typography.bodySmall)
     }
 }
+
+@Composable
+private fun UpdatesTab() {
+    val u = pk.workshop.io.Updater
+    val info = pk.workshop.io.AppInfo
+    var auto by remember { mutableStateOf(u.auto) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    fun bg(block: () -> Unit) { busy = true; Thread { try { block() } finally { busy = false } }.start() }
+    Section("Updates", Modifier.width(720.dp)) {
+        Kv("This version", info.version + if (info.built.isNotBlank()) "  (built ${info.built})" else "")
+        val reason = u.unavailableReason
+        if (reason != null) { Text(reason); return@Section }
+        Kv("Last checked", Settings.get(pk.workshop.io.Updater.LAST_CHECK).ifBlank { "Not yet" })
+        when (val s = u.state) {
+            is pk.workshop.io.Updater.Checking -> Text("Checking…")
+            is pk.workshop.io.Updater.UpToDate -> Text("You have the latest version.")
+            is pk.workshop.io.Updater.Available -> {
+                Text("Version ${s.r.version} is available (${"%.1f".format(s.r.size / 1048576.0)} MB).", fontWeight = FontWeight.SemiBold)
+                if (s.r.notes.isNotBlank()) Text(s.r.notes)
+                Button({ bg { u.download(s.r) } }, enabled = !busy) { IconText(Icons.Default.Download, "Download and install") }
+            }
+            is pk.workshop.io.Updater.Downloading -> {
+                Text("Downloading ${s.r.version}…")
+                LinearProgressIndicator({ (s.done.toFloat() / s.r.size.coerceAtLeast(1)).coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
+            }
+            is pk.workshop.io.Updater.Ready -> {
+                Text("Version ${s.version} is downloaded and checked. A backup of your records was made. It installs the next time the app opens.", fontWeight = FontWeight.SemiBold)
+                (s.notes.ifBlank { u.readyNotes() }).takeIf { it.isNotBlank() }?.let { Text(it) }
+                Button({ restartForUpdateFromSettings() }) { IconText(Icons.Default.RestartAlt, "Restart now") }
+            }
+            is pk.workshop.io.Updater.Failed -> Text(s.message, color = MaterialTheme.colorScheme.error)
+            else -> {}
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton({ bg { u.check() } }, enabled = !busy && u.state !is pk.workshop.io.Updater.Downloading) { Text("Check now") }
+        }
+        Check("Download and install updates automatically", auto) { auto = it; u.auto = it }
+        Text("New versions download in the background while you work. Before one is used, the app checks it is signed with your workshop's key and makes a backup of your records. " +
+            "It installs when the app next opens. If a new version ever fails to start, the app goes back to the previous one by itself.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+private fun restartForUpdateFromSettings() = pk.workshop.restartForUpdate()
 
 @Composable
 private fun BackupTab() {
@@ -200,7 +247,7 @@ private fun BackupTab() {
         Text("Copy a backup to Google Drive regularly (or point the folder at a Google Drive sync folder) so a fire or theft does not take your records.", style = MaterialTheme.typography.bodySmall)
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
         Text("Restore", style = MaterialTheme.typography.titleSmall)
-        OutlinedButton({ restore = FilePick.open("Choose a backup .zip", listOf(".zip")) }) { Text("Restore from a backup…") }
+        OutlinedButton({ restore = FilePick.open("Choose a backup .zip", listOf(".zip")) }) { BtnText("Restore from a backup…") }
         Text("Data folder: ${Vault.dataDir.path}", style = MaterialTheme.typography.bodySmall)
     }
     restore?.let { f ->

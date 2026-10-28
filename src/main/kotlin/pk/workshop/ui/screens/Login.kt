@@ -32,7 +32,11 @@ fun LoginScreen(onLoggedIn: () -> Unit) {
 
     fun attempt(block: () -> Unit) {
         err = null; busy = true
-        try { block() } catch (e: AppError) { err = e.message } catch (e: Exception) { err = "Could not open the data: ${e.message}" }
+        try { block() } catch (e: AppError) { err = e.message } catch (e: pk.workshop.db.Schema.MigrationException) {
+            err = if (pk.workshop.io.Updater.markBroken())
+                "This new version couldn't upgrade your records, so nothing was changed. Close the app and open it again: it will go back to the previous version by itself. (${e.cause?.message})"
+            else "Could not upgrade the data: ${e.cause?.message}"
+        } catch (e: Exception) { err = "Could not open the data: ${e.message}" }
         busy = false
     }
 

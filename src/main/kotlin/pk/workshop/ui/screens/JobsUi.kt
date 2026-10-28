@@ -153,8 +153,11 @@ fun JobScreen(id: Long) {
                 }
             }
             // Right: work and actions
-            Column(Modifier.weight(1.6f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Section("Work and parts", Modifier.weight(1f), actions = {
+            // On short screens (or with the help panel open) this column scrolls and the work list keeps a usable height
+            BoxWithConstraints(Modifier.weight(1.6f)) {
+            val compact = maxHeight < 560.dp
+            Column(Modifier.fillMaxSize().let { if (compact) it.verticalScroll(rememberScrollState()) else it }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Section("Work and parts", if (compact) Modifier.height(400.dp) else Modifier.weight(1f), actions = {
                     if (!closed) {
                         OutlinedButton({ addPart = true }) { IconText(Icons.Default.Inventory2, "Part") }
                         OutlinedButton({ addLabour = "LABOUR" }) { IconText(Icons.Default.Build, "Labour") }
@@ -192,6 +195,7 @@ fun JobScreen(id: Long) {
                         if (!closed) TextButton({ cancel = true }) { Text("Cancel job", color = MaterialTheme.colorScheme.error) }
                     }
                 }
+            }
             }
         }
     }
@@ -242,7 +246,7 @@ fun JobScreen(id: Long) {
             if (App.act("Delivered") { Jobs.deliver(id, false); Printers.open(Documents.gatePass(id)) }) deliver = false
         }) else null, saveText = "Deliver and print gate pass", extraButtons = {
             if (due > 0) {
-                Button({ pay = true }) { Text("Take payment") }
+                Button({ pay = true }) { BtnText("Take payment") }
                 OutlinedButton({ if (App.act("Delivered on credit") { Jobs.deliver(id, true); Printers.open(Documents.gatePass(id)) }) deliver = false }) { Text("Deliver on credit") }
             }
         }) {

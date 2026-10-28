@@ -1,0 +1,6 @@
+#!/bin/bash
+# Starts Workshop Manager with the Java runtime bundled for this Mac's processor (Apple Silicon or Intel).
+C="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then RT="$C/runtime/arm64"; else RT="$C/runtime/x64"; fi
+exec "$RT/Contents/Home/bin/java" -Xdock:name="Workshop Manager" -Xdock:icon="$C/Resources/icon.icns" \
+  -Dapple.awt.application.name="Workshop Manager" -Dfile.encoding=UTF-8 "$@" -jar "$C/app/WorkshopLauncher.jar"

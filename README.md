@@ -8,37 +8,29 @@ Built with Kotlin + Compose Multiplatform (desktop), with an encrypted SQLite da
 
 ## Installing on the workshop PC
 
-**Recommended: the installer (MSI)**
-The installer bundles its own Java, so nothing else needs installing.
+Download the full package from the latest release on GitHub (Releases page → `WorkshopManager-Windows-<version>.zip`, or `WorkshopManager-Mac-<version>.zip`). Java is included, so nothing else needs installing. The `READ ME FIRST.txt` inside walks through it:
 
-1. Push this folder to a GitHub repository.
-2. Open **Actions → Windows installer → Run workflow**.
-3. When the run finishes, download `workshop-manager-installers` from the run page. It contains the `.msi` and `.exe`.
-4. Run the `.msi` on the workshop PC. It adds a Start-menu entry and a desktop shortcut.
+- **Windows:** extract to `C:\` (giving `C:\Workshop Manager`), make a desktop shortcut to `Workshop Manager.exe`, open it.
+- **Mac:** drag both apps into Applications, then allow them once in System Settings → Privacy & Security.
 
-You can also build the installer on any Windows PC that has JDK 21:
+You only do this once per PC. After that the app **updates itself** (see below).
 
-```
-gradlew.bat packageMsi
-```
+## Updates
 
-The output goes to `build\compose\binaries\main\msi\`.
+New versions are published from GitHub, and installed copies pick them up by themselves:
 
-**Quick run without installing**
-The `WorkshopManager-windows-x64-1.0.0.jar` file runs on Windows if Java 21 is installed (for example Eclipse Temurin 21). Put the jar and `run-windows.bat` in the same folder, then double-click the `.bat` file.
+1. Change the code and push it to GitHub. The **Tests** workflow checks every push.
+2. Open **Actions → Release → Run workflow**, write what changed, and run it. Leave the version empty to get the next number.
+3. GitHub tests the code, builds the Windows and Mac packages, signs the update and publishes a release.
+4. Within a few hours, each installed copy downloads only the files that changed (usually 2–3 MB), checks the signature, backs up the records, and shows **Update ready → Restart now**. If nobody clicks it, the update installs the next time the app is opened.
 
-**Trying it on a Mac**
-`WorkshopManager-mac-1.0.0.jar` runs on Apple Silicon and Intel Macs that have Java 21 (for example Temurin 21 from adoptium.net).
+Safety measures:
+- An update is accepted only if it's signed with the workshop's own key (the `UPDATE_SIGNING_KEY` secret).
+- A backup of the records is made before each update.
+- If a new version fails to start three times, the app goes back to the previous version by itself.
+- Database changes run as numbered upgrade steps, each in its own transaction, and a copy of the database is kept before upgrading.
 
-```
-# with sample data (log in as admin / demo123)
-java -Dworkshop.demo=1 -Dworkshop.dataDir="$HOME/WorkshopDemo" -jar WorkshopManager-mac-1.0.0.jar
-
-# empty, like a real first run
-java -jar WorkshopManager-mac-1.0.0.jar
-```
-
-On a Mac, real data is kept in `~/Library/Application Support/WorkshopManager/`. Delete the `WorkshopDemo` folder to reset the sample data.
+**Settings → Updates** shows the version, lets you check now, and switches automatic installs on or off. [RELEASING.md](RELEASING.md) covers the one-time GitHub setup and how to add database changes.
 
 **Trying every feature:** `./gradlew run -Pdemo` starts with four months of sample workshop data. [TESTING.md](TESTING.md) walks through each flow with that data.
 
@@ -48,8 +40,9 @@ The app guides first-time use itself:
 
 - **Guided tour:** opens after the admin login is created and points at each part of the screen. You can replay it from **Help & tour** at the bottom of the menu.
 - **Getting started checklist:** on the dashboard. Each step ticks itself off once it's really done, and **Go** jumps to the right screen and tab.
-- **How this works:** short instructions on every screen. They open the first time you visit a screen; after that, use the **?** next to the title.
-
+- **Screen tours:** the first time each screen is opened, a short tour points at its parts. Switch this off in Settings → Appearance.
+- **How this works:** short instructions on every screen, behind the **?** next to the title, with **Show me around this screen**.
+- **Training page** (bottom of the menu): ten hands-on lessons that walk through real jobs step by step (a car from arrival to delivery, a counter sale, buying stock, the daily close, month end, payroll, and so on), every screen tour, and a daily/weekly/monthly routine. Practise them in the Sample data app.
 
 1. Choose the admin username and password.
 2. The app shows a **recovery code** once. Write it down and keep it somewhere safe.
@@ -140,9 +133,7 @@ Needs **JDK 21 or newer** (a JDK, not just a JRE), for example Temurin 21 from a
 ./gradlew run                               # start empty, like a first install; data kept in ./dev-data
 ./gradlew test                              # accounting + security tests
 ./gradlew packageUberJarForCurrentOS        # single runnable jar
-./gradlew -PtargetOs=windows packageUberJarForCurrentOS   # Windows jar built from Linux/macOS
-./gradlew -PtargetOs=mac packageUberJarForCurrentOS       # Mac jar (Apple Silicon + Intel)
-./gradlew packageDmg                        # Mac app with Java bundled (run on a Mac)
+packaging/package.sh 1.2.0                  # Windows + Mac packages, as the release workflow builds them
 ```
 
 Development runs keep their data inside the project folder (`dev-data/`, `demo-data/`), never in the real data folder. Delete those folders to start over.

@@ -96,7 +96,7 @@ fun LabeledBox(
     val cs = MaterialTheme.colorScheme
     val colors = fieldColors(hovered)
     val labelColor = when { error != null -> cs.error; focused -> cs.primary; else -> cs.onSurfaceVariant }
-    Column(modifier.width(IntrinsicSize.Max).padding(top = 4.dp)) {
+    Column(modifier.tourAnchor("field.$label").width(IntrinsicSize.Max).padding(top = 4.dp)) {
         if (label.isNotEmpty()) Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = labelColor,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, bottom = 5.dp))
         BasicTextField(

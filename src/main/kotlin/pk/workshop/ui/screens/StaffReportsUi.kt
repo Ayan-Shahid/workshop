@@ -22,7 +22,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun StaffScreen() {
-    var tab by remember { mutableStateOf(App.takeTab("Staff")) }
+    var tab by rememberTab("Staff")
     Page("Staff") {
         Tabs(listOf("Staff", "Technicians", "Salaries", "Attendance"), tab) { tab = it }
         when (tab) { 0 -> StaffTab(); 1 -> TechTab(); 2 -> PayrollTab(); 3 -> AttendanceTab() }
@@ -38,7 +38,7 @@ private fun StaffTab() {
     Toolbar { Spacer(Modifier.weight(1f)); Button({ edit = Staff() }) { IconText(Icons.Default.PersonAdd, "Add staff") } }
     DataTable(list, listOf(C("Name", 1.5f) { it.name + if (!it.active) " (left)" else "" }, C("Role", 1f) { it.role }, C("Phone", 1f) { it.phone },
         C("Salary", 1f, true) { plain(it.salary) }, C("Advance owed", 1f, true) { plain(StaffBook.advanceBalance(it.id)) },
-        C("", 1f, content = { s -> TextButton({ adv = s }) { Text("Give advance") } })), Modifier.fillMaxSize(), onClick = { edit = it })
+        C("", 1f, content = { s -> TextButton({ adv = s }) { BtnText("Give advance") } })), Modifier.fillMaxSize(), onClick = { edit = it })
     edit?.let { s0 ->
         var s by remember(s0) { mutableStateOf(s0) }
         FormDialog(if (s0.id == 0L) "Add staff" else s0.name, { edit = null }, { if (App.act("Saved") { StaffBook.save(s) }) edit = null }) {
@@ -86,7 +86,7 @@ private fun PayrollTab() {
     Toolbar { Field("Month (yyyy-mm)", month, { month = it }, Modifier.width(180.dp)); Text("Paid: ${Money.rs(paid.sumOf { it.long("net") })}", fontWeight = FontWeight.SemiBold) }
     DataTable(staff, listOf(C("Name", 1.6f) { it.name }, C("Salary", 1f, true) { plain(it.salary) }, C("Commission", 1f, true) { plain(StaffBook.commission(it.id, month)) },
         C("Advance owed", 1f, true) { plain(StaffBook.advanceBalance(it.id)) },
-        C("Status", 1.2f, content = { s -> val p = paid.firstOrNull { it.long("staff_id") == s.id }; if (p != null) Chip("Paid ${plain(p.long("net"))}", MaterialTheme.colorScheme.tertiary) else TextButton({ pay = s }) { Text("Pay salary") } })),
+        C("Status", 1.2f, content = { s -> val p = paid.firstOrNull { it.long("staff_id") == s.id }; if (p != null) Chip("Paid ${plain(p.long("net"))}", MaterialTheme.colorScheme.tertiary) else TextButton({ pay = s }) { BtnText("Pay salary") } })),
         Modifier.fillMaxSize())
     pay?.let { s ->
         var basic by remember { mutableStateOf<Long?>(s.salary) }; var comm by remember { mutableStateOf<Long?>(StaffBook.commission(s.id, month)) }
@@ -163,7 +163,7 @@ fun ReportsScreen() {
         OutlinedButton({ App.act { Printers.open(Excel.exportFile(table)) } }) { IconText(Icons.Default.TableView, "Excel") }
     }) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(Modifier.width(270.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+            Column(Modifier.width(270.dp).tourAnchor("reports.list").verticalScroll(androidx.compose.foundation.rememberScrollState())) {
                 reportDefs.groupBy { it.group }.forEach { (g, defs) ->
                     Text(g, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
                     defs.forEach { d -> NavigationDrawerItem({ Text(d.name, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, sel == d, { sel = d }, Modifier.height(38.dp)) }

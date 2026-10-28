@@ -43,7 +43,7 @@ object Db {
         // Touch the database so a wrong key fails here, not later.
         c.createStatement().use { it.executeQuery("SELECT count(*) FROM sqlite_master").close() }
         conn = c
-        Schema.migrate()
+        try { Schema.migrate() } catch (e: Throwable) { close(); throw e }
     }
 
     fun close() {

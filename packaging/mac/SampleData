@@ -1,0 +1,10 @@
+#!/bin/bash
+# Opens Workshop Manager with four months of sample data, stored separately from real records.
+HERE="$(cd "$(dirname "$0")/../../.." && pwd)"
+for APP in "$HERE/Workshop Manager.app" "/Applications/Workshop Manager.app" "$HOME/Applications/Workshop Manager.app"; do
+  if [ -x "$APP/Contents/MacOS/WorkshopManager" ]; then
+    D="$HOME/Library/Application Support/WorkshopManagerSample"; mkdir -p "$D"
+    exec "$APP/Contents/MacOS/WorkshopManager" -Dworkshop.demo=1 -Dworkshop.dataDir="$D/data" -Duser.home="$D"
+  fi
+done
+osascript -e 'display alert "Workshop Manager not found" message "Keep this app in the same folder as Workshop Manager (for example, Applications)."'

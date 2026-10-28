@@ -59,10 +59,12 @@ object App {
     /** Opens a screen on a given tab (used by the Getting started checklist). */
     private var pendingTab: Pair<String, Int>? = null
     fun openTab(screen: String, tab: Int) {
-        pendingTab = screen to tab
+        pendingTab = screen to tab; tabRequest = screen to tab
         go(when (screen) { "Settings" -> Screen.Settings; "Staff" -> Screen.Staff; "Inventory" -> Screen.Inventory; "Books" -> Screen.Books
             "Customers" -> Screen.Customers; "Jobs" -> Screen.Jobs; "Billing" -> Screen.Billing; "Purchasing" -> Screen.Purchasing; else -> Screen.Dashboard })
     }
+    /** Tab switch asked for while the screen is already showing (tours use this). */
+    var tabRequest by mutableStateOf<Pair<String, Int>?>(null)
     /** The tab a screen should open on: the one asked for by [openTab], else the first. */
     fun takeTab(screen: String): Int { val p = pendingTab; if (p?.first == screen) { pendingTab = null; return p.second }; return 0 }
 
@@ -89,6 +91,7 @@ sealed class Screen(val title: String) {
     data object Staff : Screen("Staff")
     data object Reports : Screen("Reports")
     data object Settings : Screen("Settings")
+    data object Training : Screen("Training")
 }
 
 // ---------------- inputs ----------------
@@ -148,14 +151,14 @@ fun <T> Dropdown(label: String, options: List<T>, selected: T?, onSelect: (T) ->
 
 @Composable
 fun Check(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { onChange(!checked) }.padding(end = 8.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.tourAnchor("check.$label").clip(RoundedCornerShape(6.dp)).clickable { onChange(!checked) }.padding(end = 8.dp)) {
         Checkbox(checked, onChange); Text(label)
     }
 }
 
 @Composable
 fun SearchBox(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, hint: String = "Search", onEnter: (() -> Unit)? = null, focus: FocusRequester? = null) {
-    Field(hint, value, onChange, modifier.widthIn(min = 240.dp), trailing = { Icon(Icons.Default.Search, null) }, onEnter = onEnter, focus = focus, placeholder = "Type to search")
+    Field(hint, value, onChange, modifier.tourAnchor("search").widthIn(min = 240.dp), trailing = { Icon(Icons.Default.Search, null) }, onEnter = onEnter, focus = focus, placeholder = "Type to search")
 }
 
 /** A text box for USB barcode scanners (they type the code and press Enter). */
@@ -163,9 +166,18 @@ fun SearchBox(value: String, onChange: (String) -> Unit, modifier: Modifier = Mo
 fun ScanBox(onScan: (String) -> Unit, modifier: Modifier = Modifier, hint: String = "Scan or type a barcode, then Enter") {
     var t by remember { mutableStateOf("") }
     val f = remember { FocusRequester() }
-    Field(hint, t, { t = it }, modifier.widthIn(min = 280.dp), trailing = { Icon(Icons.Default.QrCodeScanner, null) }, placeholder = "Scan, or type and press Enter",
+    Field(hint, t, { t = it }, modifier.tourAnchor("scan").widthIn(min = 280.dp), trailing = { Icon(Icons.Default.QrCodeScanner, null) }, placeholder = "Scan, or type and press Enter",
         onEnter = { val c = t.trim(); t = ""; if (c.isNotEmpty()) onScan(c) }, focus = f)
     LaunchedEffect(Unit) { try { f.requestFocus() } catch (_: Exception) {} }
+}
+
+/** A screen's selected tab: opens on the tab asked for by the checklist or a tour, and follows later tour requests. */
+@Composable
+fun rememberTab(screen: String): MutableState<Int> {
+    val s = remember { mutableStateOf(App.takeTab(screen)) }
+    val req = App.tabRequest
+    LaunchedEffect(req) { if (req?.first == screen) { s.value = req.second; App.tabRequest = null } }
+    return s
 }
 
 // ---------------- layout ----------------
@@ -175,7 +187,15 @@ fun Page(title: String, actions: @Composable RowScope.() -> Unit = {}, back: Boo
     val help = Help.instructions(App.screen)
     val key = Help.keyOf(App.screen)
     var showHelp by remember(key) { mutableStateOf(help != null && Help.firstVisit(key)) }
-    LaunchedEffect(key) { if (help != null) Help.markSeen(key) }
+    // First visit: mark the screen as seen and, unless a tour is already running, start this screen's tour
+    LaunchedEffect(key) {
+        // Leaving a screen ends that screen's tour (lessons that move between screens keep going)
+        if (Help.tourOpen && Help.activeId.startsWith("screen.") && Help.activeId != "screen.$key") Help.tourOpen = false
+        if (help != null && !Help.tourOpen && Help.firstVisit(key)) {
+            Help.markSeen(key)
+            if (Help.autoTours && App.loggedIn) Training.screenTour(App.screen)?.let { Help.run("screen.$key", it) }
+        }
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
             if (back) IconButton({ App.goBack() }) { Icon(Icons.Default.ArrowBack, "Back") }
@@ -186,14 +206,14 @@ fun Page(title: String, actions: @Composable RowScope.() -> Unit = {}, back: Boo
             Spacer(Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, content = actions)
         }
-        if (showHelp && help != null) InstructionsPanel(help) { showHelp = false }
+        if (showHelp && help != null) InstructionsPanel(help, Training.screenTour(App.screen)?.let { steps -> { Help.run("screen.$key", steps) } }) { showHelp = false }
         content()
     }
 }
 
 @Composable
 fun Section(title: String? = null, modifier: Modifier = Modifier, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    Surface(modifier.carbonCard(), shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
+    Surface(modifier.let { if (title != null) it.tourAnchor("sec.$title") else it }.carbonCard(), shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
         Column(Modifier.padding(16.dp)) {
             if (title != null) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -236,7 +256,7 @@ fun Chip(text: String, color: Color = statusColor(text)) {
 @Composable
 fun Tabs(tabs: List<String>, selected: Int, onSelect: (Int) -> Unit) {
     SecondaryScrollableTabRow(selectedTabIndex = selected, edgePadding = 0.dp, containerColor = Color.Transparent, modifier = Modifier.padding(bottom = 12.dp)) {
-        tabs.forEachIndexed { i, t -> Tab(selected = i == selected, onClick = { onSelect(i) }, text = { Text(t) }) }
+        tabs.forEachIndexed { i, t -> Tab(selected = i == selected, onClick = { onSelect(i) }, text = { Text(t) }, modifier = Modifier.tourAnchor("tab.$t")) }
     }
 }
 
@@ -260,7 +280,7 @@ class C<T>(val title: String, val weight: Float = 1f, val end: Boolean = false, 
 @Composable
 fun <T> DataTable(rows: List<T>, cols: List<C<T>>, modifier: Modifier = Modifier, onClick: ((T) -> Unit)? = null, empty: String = "Nothing here yet",
                   footer: List<String>? = null) {
-    Surface(modifier.carbonCard(), shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
+    Surface(modifier.tourAnchor("table").carbonCard(), shape = RoundedCornerShape(12.dp), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
         Column {
             Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.88f)).padding(horizontal = 12.dp, vertical = 10.dp)) {
                 cols.forEach { c -> Text(c.title, Modifier.weight(c.weight), style = MaterialTheme.typography.labelLarge, textAlign = if (c.end) TextAlign.End else TextAlign.Start, maxLines = 1) }
@@ -360,7 +380,14 @@ fun Toolbar(content: @Composable RowScope.() -> Unit) {
 }
 
 @Composable
-fun IconText(icon: ImageVector, text: String) { Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(text) }
+fun IconText(icon: ImageVector, text: String) {
+    Row(Modifier.tourAnchor("btn.$text"), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(text) }
+}
+
+/** Button text that the tours can point at. */
+@Composable
+fun BtnText(text: String, modifier: Modifier = Modifier, fontSize: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified) =
+    Text(text, modifier.tourAnchor("btn.$text"), fontSize = fontSize)
 
 fun rs(p: Long) = Money.rs(p)
 fun plain(p: Long) = Money.plain(p)

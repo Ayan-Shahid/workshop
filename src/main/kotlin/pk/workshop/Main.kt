@@ -43,7 +43,11 @@ fun app() = application {
         onCloseRequest = { try { if (Db.isOpen) { Backup.autoIfDue(); Db.close() } } catch (_: Exception) {}; exitApplication() },
         state = state, title = "Workshop Manager", icon = androidx.compose.ui.res.painterResource("icon.png"),
         onPreviewKeyEvent = { e ->
-            if (e.type == KeyEventType.KeyDown && App.loggedIn) when (e.key) {
+            // During a tour the keys drive the tour, whichever box has the cursor
+            if (Help.tourOpen && e.type == KeyEventType.KeyDown && e.key in setOf(Key.Escape, Key.Enter, Key.NumPadEnter, Key.DirectionRight, Key.DirectionLeft)) {
+                when (e.key) { Key.Escape -> Help.skip(); Key.DirectionLeft -> Help.back(); else -> Help.next() }
+                true
+            } else if (e.type == KeyEventType.KeyDown && App.loggedIn) when (e.key) {
                 Key.F2 -> { App.go(Screen.Jobs); true }
                 Key.F3 -> { App.go(Screen.CounterSale()); true }
                 Key.F4 -> { App.go(Screen.Customers); true }
@@ -54,6 +58,8 @@ fun app() = application {
         },
     ) {
         window.minimumSize = java.awt.Dimension(1100, 700)
+        // Still running after 10 seconds: a just-installed update works, so the launcher keeps it
+        LaunchedEffect(Unit) { delay(10_000); try { pk.workshop.io.Updater.confirmStarted() } catch (_: Exception) {} }
         AppTheme(App.theme) {
             Surface(Modifier.fillMaxSize().carbonBackground(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onBackground) {
                 if (!App.loggedIn) LoginScreen(onLoggedIn = ::afterLogin) else Shell()
@@ -71,6 +77,32 @@ fun afterLogin() {
     // First time in: walk through the app once
     if (!Settings.bool(pk.workshop.data.Guide.TOUR_DONE)) Help.start()
     Thread { try { Backup.autoIfDue() } catch (_: Exception) {} }.start()
+    if (!updatesStarted) { updatesStarted = true; pk.workshop.io.Updater.startBackground() }
+}
+
+private var updatesStarted = false
+
+/** Closes the records cleanly and restarts into the downloaded update. */
+fun restartForUpdate() = pk.workshop.io.Updater.restartNow { try { if (Db.isOpen) Db.close() } catch (_: Exception) {} }
+
+@Composable
+private fun UpdateNotice() {
+    when (val s = pk.workshop.io.Updater.state) {
+        is pk.workshop.io.Updater.Ready -> Column(Modifier.fillMaxWidth().padding(bottom = 8.dp).carbonCard(RoundedCornerShape(12.dp)).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SystemUpdate, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Update ${s.version} ready", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            }
+            Text("Installs the next time the app opens.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button({ restartForUpdate() }, Modifier.fillMaxWidth()) { Text("Restart now") }
+        }
+        is pk.workshop.io.Updater.Available -> TextButton({ App.openTab("Settings", 7) }, Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.SystemUpdate, null); Spacer(Modifier.width(6.dp)); Text("Update ${s.r.version} available")
+        }
+        else -> {}
+    }
 }
 
 private data class NavItem(val label: String, val icon: ImageVector, val screen: Screen, val key: String = "")
@@ -88,6 +120,7 @@ private val nav = listOf(
     NavItem("Staff", Icons.Default.Badge, Screen.Staff),
     NavItem("Reports", Icons.Default.BarChart, Screen.Reports),
     NavItem("Settings", Icons.Default.Settings, Screen.Settings),
+    NavItem("Training", Icons.Default.School, Screen.Training),
 )
 
 private fun sectionOf(s: Screen): Screen = when (s) {
@@ -130,6 +163,7 @@ fun Shell() {
                     )
                 }
             }
+            UpdateNotice()
             TextButton({ Help.start() }, Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Explore, null); Spacer(Modifier.width(6.dp)); Text("Help & tour")
             }
@@ -154,6 +188,7 @@ fun Shell() {
                 Screen.Staff -> StaffScreen()
                 Screen.Reports -> ReportsScreen()
                 Screen.Settings -> SettingsScreen()
+                Screen.Training -> TrainingScreen()
             }
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).padding(16.dp))
         }
