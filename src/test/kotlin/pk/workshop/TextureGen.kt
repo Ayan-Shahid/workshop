@@ -47,4 +47,40 @@ class TextureGen {
             java.io.File(out, "carbon-${if (dark) "dark" else "light"}.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
         }
     }
+
+    /**
+     * Primary-button textures (WebP): a smooth mesh of primary reds per theme, stretched to each button,
+     * and one seamless, transparent sandpaper grain tile repeated at its real size on top.
+     */
+    @Test fun generateButtons() {
+        val out = java.io.File("src/main/resources/textures").apply { mkdirs() }
+        if (System.getProperty("regen") != "1" && java.io.File(out, "grain.webp").exists()) return
+        for (dark in listOf(true, false)) {
+            val img = render(Shaders.BUTTON_MESH, 640, 160) {
+                if (dark) { col("c0", 0xFFFF5F57); col("c1", 0xFFE53935); col("c2", 0xFFC62828); col("c3", 0xFF9C1A1A); col("c4", 0xFFEF4640) }
+                else { col("c0", 0xFFEB4F49); col("c1", 0xFFD32F2F); col("c2", 0xFFB42222); col("c3", 0xFF8E1515); col("c4", 0xFFDE3A35) }
+            }
+            java.io.File(out, "mesh-${if (dark) "dark" else "light"}.webp").writeBytes(img.encodeToData(EncodedImageFormat.WEBP, 95)!!.bytes)
+        }
+        // Sandpaper: fine per-pixel grit (light and dark), plus sparse coarser specks; wraps at the edges so it tiles seamlessly
+        val n = 160
+        val rnd = java.util.Random(7)
+        val s = Surface.makeRasterN32Premul(n, n)
+        val c = s.canvas
+        c.clear(0x00000000)
+        val p = Paint().apply { isAntiAlias = false }
+        fun dot(x: Int, y: Int, light: Boolean, a: Float) {
+            p.color = ((a.coerceIn(0f, 1f) * 255).toInt() shl 24) or (if (light) 0xFFFFFF else 0x000000)
+            c.drawRect(Rect.makeXYWH(((x % n + n) % n).toFloat(), ((y % n + n) % n).toFloat(), 1f, 1f), p)
+        }
+        for (y in 0 until n) for (x in 0 until n) {
+            val v = rnd.nextGaussian().toFloat()
+            if (v > 0) dot(x, y, true, v * 0.07f) else dot(x, y, false, -v * 0.10f)
+        }
+        repeat(n * n * 3 / 100) {
+            val x = rnd.nextInt(n); val y = rnd.nextInt(n); val light = rnd.nextFloat() < 0.45f; val a = 0.18f + rnd.nextFloat() * 0.14f
+            dot(x, y, light, a); if (rnd.nextBoolean()) dot(x + 1, y, light, a * 0.7f); if (rnd.nextBoolean()) dot(x, y + 1, light, a * 0.6f)
+        }
+        java.io.File(out, "grain.webp").writeBytes(s.makeImageSnapshot().encodeToData(EncodedImageFormat.WEBP, 100)!!.bytes)
+    }
 }

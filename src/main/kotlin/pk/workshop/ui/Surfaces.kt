@@ -30,6 +30,9 @@ object Textures {
 
     fun forged(dark: Boolean) = load(if (dark) "forged-dark.jpg" else "forged-light.jpg")
     fun carbon(dark: Boolean) = load(if (dark) "carbon-dark.png" else "carbon-light.png")
+    fun mesh(dark: Boolean) = load(if (dark) "mesh-dark.webp" else "mesh-light.webp")
+    /** Seamless sandpaper grain (transparent), repeated at its real size so the grit looks the same on every button. */
+    val grain: Brush? by lazy { load("grain.webp")?.let { ShaderBrush(ImageShader(it, TileMode.Repeated, TileMode.Repeated)) } }
 }
 
 @Composable
@@ -71,10 +74,19 @@ fun Modifier.carbonCard(shape: Shape = androidx.compose.foundation.shape.Rounded
 // ---------------- mesh gradient (primary shades only) ----------------
 
 /**
- * Mesh gradient from five shades of the primary red (no other hues), built from soft radial blends over the base red.
- * Shades are scattered (light bottom-left, deepest top-right) so it never reads as a lit, raised 3D button.
+ * Primary fill: a grainy, sandpaper-textured mesh gradient of primary reds (no other hues). The mesh image is stretched
+ * to the button (a soft gradient stretches cleanly) and the grain tile is repeated on top at 1:1, so the grit is the
+ * same size on a small and a wide button. Shades are scattered so it never reads as a lit, raised 3D button.
  */
 fun DrawScope.drawMesh(dark: Boolean) {
+    val mesh = Textures.mesh(dark)
+    if (mesh != null) drawImage(mesh, dstSize = IntSize(size.width.roundToInt() + 1, size.height.roundToInt() + 1), filterQuality = FilterQuality.Medium)
+    else drawMeshGradient(dark)
+    Textures.grain?.let { drawRect(it) }
+}
+
+/** Fallback if the images are missing: the same mesh built from radial blends. */
+private fun DrawScope.drawMeshGradient(dark: Boolean) {
     val c0 = if (dark) Color(0xFFFF5F57) else Color(0xFFEB4F49)   // lightest
     val c1 = if (dark) Color(0xFFE53935) else Color(0xFFD32F2F)   // primary
     val c2 = if (dark) Color(0xFFC62828) else Color(0xFFB42222)   // deeper
