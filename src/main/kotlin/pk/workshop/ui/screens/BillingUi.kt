@@ -82,7 +82,7 @@ fun BookingsScreen() {
 
 @Composable
 fun BillingScreen() {
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableStateOf(App.takeTab("Billing")) }
     Page("Billing", actions = { Button({ App.go(Screen.CounterSale()) }) { IconText(Icons.Default.PointOfSale, "Counter sale") } }) {
         Tabs(listOf("Invoices", "Payments received", "Cheques", "FBR queue"), tab) { tab = it }
         when (tab) { 0 -> InvoicesTab(); 1 -> PaymentsTab(); 2 -> ChequesTab(); 3 -> FbrTab() }

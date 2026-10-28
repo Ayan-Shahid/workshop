@@ -44,6 +44,13 @@ On a Mac, real data is kept in `~/Library/Application Support/WorkshopManager/`.
 
 ## First run
 
+The app guides first-time use itself:
+
+- **Guided tour:** opens after the admin login is created and points at each part of the screen. You can replay it from **Help & tour** at the bottom of the menu.
+- **Getting started checklist:** on the dashboard. Each step ticks itself off once it's really done, and **Go** jumps to the right screen and tab.
+- **How this works:** short instructions on every screen. They open the first time you visit a screen; after that, use the **?** next to the title.
+
+
 1. Choose the admin username and password.
 2. The app shows a **recovery code** once. Write it down and keep it somewhere safe.
    - The code is the only way to reset a forgotten password.

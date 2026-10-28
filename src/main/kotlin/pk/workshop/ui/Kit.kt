@@ -56,6 +56,16 @@ object App {
     fun refresh() { version++ }
     fun toast(m: String) { message = m }
 
+    /** Opens a screen on a given tab (used by the Getting started checklist). */
+    private var pendingTab: Pair<String, Int>? = null
+    fun openTab(screen: String, tab: Int) {
+        pendingTab = screen to tab
+        go(when (screen) { "Settings" -> Screen.Settings; "Staff" -> Screen.Staff; "Inventory" -> Screen.Inventory; "Books" -> Screen.Books
+            "Customers" -> Screen.Customers; "Jobs" -> Screen.Jobs; "Billing" -> Screen.Billing; "Purchasing" -> Screen.Purchasing; else -> Screen.Dashboard })
+    }
+    /** The tab a screen should open on: the one asked for by [openTab], else the first. */
+    fun takeTab(screen: String): Int { val p = pendingTab; if (p?.first == screen) { pendingTab = null; return p.second }; return 0 }
+
     /** Runs a user action; rule violations show as a message instead of crashing. Returns true on success. */
     fun act(success: String? = null, block: () -> Unit): Boolean = try {
         val before = message; block(); refresh()
@@ -162,12 +172,21 @@ fun ScanBox(onScan: (String) -> Unit, modifier: Modifier = Modifier, hint: Strin
 
 @Composable
 fun Page(title: String, actions: @Composable RowScope.() -> Unit = {}, back: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    val help = Help.instructions(App.screen)
+    val key = Help.keyOf(App.screen)
+    var showHelp by remember(key) { mutableStateOf(help != null && Help.firstVisit(key)) }
+    LaunchedEffect(key) { if (help != null) Help.markSeen(key) }
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
             if (back) IconButton({ App.goBack() }) { Icon(Icons.Default.ArrowBack, "Back") }
-            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            if (help != null) IconButton({ showHelp = !showHelp }, Modifier.tourAnchor("help.button")) {
+                Icon(Icons.Default.HelpOutline, "How this screen works", tint = if (showHelp) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.weight(1f))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, content = actions)
         }
+        if (showHelp && help != null) InstructionsPanel(help) { showHelp = false }
         content()
     }
 }

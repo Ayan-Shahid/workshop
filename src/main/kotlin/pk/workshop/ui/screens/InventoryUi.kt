@@ -23,7 +23,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun InventoryScreen() {
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableStateOf(App.takeTab("Inventory")) }
     Page("Inventory") {
         Tabs(listOf("Parts", "Stock counts", "Price update", "Stock movements"), tab) { tab = it }
         when (tab) { 0 -> PartsTab(); 1 -> CountsTab(); 2 -> PriceTab(); 3 -> MovesTab() }

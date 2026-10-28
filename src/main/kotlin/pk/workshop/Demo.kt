@@ -300,7 +300,7 @@ object Demo {
         }
         // Faisal Rent a Car has run past its credit limit, so new work shows the warning
         val fr = Customers.get(cust.getValue("faisal"))
-        Customers.save(fr.copy(creditLimit = maxOf(rs(50000), round(Customers.balance(fr.id) * 8 / 10, rs(10000)))))
+        Customers.save(fr.copy(creditLimit = maxOf(rs(1000), round(Customers.balance(fr.id) * 7 / 10, rs(1000)))))   // always below what they owe
 
         Ledger.lock(start.take(7))
         at(today, 9)

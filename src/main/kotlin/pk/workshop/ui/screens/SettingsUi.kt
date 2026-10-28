@@ -27,9 +27,11 @@ import pk.workshop.ui.Button
 
 @Composable
 fun SettingsScreen() {
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableStateOf(App.takeTab("Settings")) }
     Page("Settings") {
         Tabs(listOf("Business", "Tax and FBR", "Printers and machines", "Lists", "Appearance", "Backup", "Password"), tab) { tab = it }
+        // Seeing the tax tab counts as having checked the rates (Getting started)
+        LaunchedEffect(tab) { if (tab == 1) pk.workshop.data.Settings.setBool(pk.workshop.data.Guide.TAXES_CHECKED, true) }
         Column(Modifier.verticalScroll(rememberScrollState())) {
             when (tab) { 0 -> BusinessTab(); 1 -> TaxTab(); 2 -> PrintersTab(); 3 -> ListsTab(); 4 -> AppearanceTab(); 5 -> BackupTab(); 6 -> PasswordTab() }
         }

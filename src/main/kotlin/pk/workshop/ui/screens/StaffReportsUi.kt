@@ -22,7 +22,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun StaffScreen() {
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableStateOf(App.takeTab("Staff")) }
     Page("Staff") {
         Tabs(listOf("Staff", "Technicians", "Salaries", "Attendance"), tab) { tab = it }
         when (tab) { 0 -> StaffTab(); 1 -> TechTab(); 2 -> PayrollTab(); 3 -> AttendanceTab() }

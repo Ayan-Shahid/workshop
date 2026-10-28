@@ -23,7 +23,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun BooksScreen() {
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableStateOf(App.takeTab("Books")) }
     Page("Bookkeeping") {
         Tabs(listOf("Vouchers", "Expenses", "Cash closing", "Ledger", "Trial balance", "Profit & loss", "Balance sheet", "Cash flow",
             "Bank reconciliation", "Chart of accounts", "Fixed assets", "Opening balances", "Month locks"), tab) { tab = it }

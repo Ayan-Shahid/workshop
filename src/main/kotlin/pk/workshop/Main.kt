@@ -68,6 +68,8 @@ fun afterLogin() {
     App.theme = Settings.get(Settings.THEME, "system")
     CashDrawer.opener = { Printers.openDrawer() }
     App.loggedIn = true
+    // First time in: walk through the app once
+    if (!Settings.bool(pk.workshop.data.Guide.TOUR_DONE)) Help.start()
     Thread { try { Backup.autoIfDue() } catch (_: Exception) {} }.start()
 }
 
@@ -103,6 +105,7 @@ fun Shell() {
         snack.showSnackbar(m, withDismissAction = true, duration = SnackbarDuration.Short)
         App.message = null
     }
+    Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize()) {
         // Sidebar: solid woven-carbon panel, same surface as the cards
         Column(Modifier.width(232.dp).fillMaxHeight().carbonCard(androidx.compose.ui.graphics.RectangleShape, border = false).padding(12.dp)) {
@@ -115,17 +118,20 @@ fun Shell() {
                     Text("Workshop Manager", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).tourAnchor("nav")) {
                 val current = sectionOf(App.screen)
                 nav.forEach { n ->
                     NavigationDrawerItem(
                         label = { Text(n.label, maxLines = 1, softWrap = false) }, icon = { Icon(n.icon, null) }, selected = current == n.screen,
                         badge = { if (n.key.isNotEmpty()) Text(n.key, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        onClick = { App.go(n.screen) }, modifier = Modifier.height(44.dp),
+                        onClick = { App.go(n.screen) }, modifier = Modifier.height(44.dp).tourAnchor("nav.${n.label}"),
                         colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                             selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer),
                     )
                 }
+            }
+            TextButton({ Help.start() }, Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Explore, null); Spacer(Modifier.width(6.dp)); Text("Help & tour")
             }
             TextButton({ App.act { Db.close(); App.loggedIn = false; App.screen = Screen.Dashboard } }, Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.Logout, null); Spacer(Modifier.width(6.dp)); Text("Log out")
@@ -151,5 +157,7 @@ fun Shell() {
             }
             SnackbarHost(snack, Modifier.align(Alignment.BottomCenter).padding(16.dp))
         }
+    }
+    TourOverlay()
     }
 }

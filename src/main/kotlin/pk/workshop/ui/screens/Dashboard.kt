@@ -31,9 +31,10 @@ fun DashboardScreen() {
     Page("Today, ${Dates.show(Dates.today())}", actions = {
         OutlinedButton({ App.go(Screen.Bookings) }) { IconText(Icons.Default.EventAvailable, "Bookings") }
         OutlinedButton({ App.go(Screen.CounterSale()) }) { IconText(Icons.Default.PointOfSale, "Counter sale") }
-        Button({ App.go(Screen.Jobs) }) { IconText(Icons.Default.Add, "New job card") }
+        Button({ App.go(Screen.Jobs) }, Modifier.tourAnchor("dash.newjob")) { IconText(Icons.Default.Add, "New job card") }
     }) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            GettingStarted()
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Stat("Sales today", Money.rs(d.salesToday), Modifier.weight(1f), accent = true, icon = Icons.Default.TrendingUp, onClick = { App.go(Screen.Billing) })
                 Stat("Bills today", d.invoicesToday.toString(), Modifier.weight(1f), icon = Icons.Default.ReceiptLong)

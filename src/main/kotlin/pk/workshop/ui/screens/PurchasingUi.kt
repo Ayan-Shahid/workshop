@@ -20,7 +20,7 @@ import pk.workshop.ui.Button
 
 @Composable
 fun PurchasingScreen() {
-    var tab by remember { mutableStateOf(0) }
+    var tab by remember { mutableStateOf(App.takeTab("Purchasing")) }
     Page("Purchasing") {
         Tabs(listOf("Suppliers", "Purchase bills", "Purchase orders", "Returns", "Warranty claims"), tab) { tab = it }
         when (tab) { 0 -> SuppliersTab(); 1 -> BillsTab(); 2 -> OrdersTab(); 3 -> ReturnsTab(); 4 -> ClaimsTab() }
