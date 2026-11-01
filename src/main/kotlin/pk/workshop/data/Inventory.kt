@@ -125,10 +125,12 @@ object Inventory {
 
     /** Opening stock at go-live: adds stock and posts it against opening balances. */
     fun openingStock(partId: Long, qty: Long, unitCost: Long, date: String = Dates.today()) = Db.tx {
-        receive(partId, date, qty, unitCost, "OPENING", partId, "Opening stock")
+        if (qty <= 0) fail("Enter the quantity.")
         val value = Money.times(unitCost, qty)
-        if (value > 0) Ledger.post("OPEN", date, "Opening stock: ${get(partId).name}",
-            listOf(LedgerLine(Accounts.sys("INVENTORY"), debit = value), LedgerLine(Accounts.sys("OPENING"), credit = value)), "part", partId)
+        val vid = if (value > 0) Ledger.post("OPEN", date, "Opening stock: ${get(partId).name}",
+            listOf(LedgerLine(Accounts.sys("INVENTORY"), debit = value), LedgerLine(Accounts.sys("OPENING"), credit = value)), "part", partId) else null
+        // The movement points at its voucher, so deleting one removes the other
+        receive(partId, date, qty, unitCost, "OPENING", vid ?: 0, "Opening stock")
     }
 
     /** Stock adjustment for damage, loss or found stock. Posts the value difference. */
@@ -136,14 +138,14 @@ object Inventory {
         if (delta == 0L) fail("Enter a quantity to add or remove.")
         if (reason.isBlank()) fail("Enter a reason for the adjustment.")
         val p = get(partId)
-        move(partId, date, "ADJUST", delta, p.avgCost, "ADJUST", null, reason)
         val value = Money.times(p.avgCost, kotlin.math.abs(delta))
-        if (value > 0) {
+        val vid = if (value > 0) {
             val inv = Accounts.sys("INVENTORY"); val adj = Accounts.sys("STOCK_ADJ")
             val lines = if (delta < 0) listOf(LedgerLine(adj, debit = value), LedgerLine(inv, credit = value))
                         else listOf(LedgerLine(inv, debit = value), LedgerLine(adj, credit = value))
             Ledger.post("STK", date, "Stock adjustment: ${p.name} (${Qty.fmt(delta)}) — $reason", lines, "part", partId)
-        }
+        } else null
+        move(partId, date, "ADJUST", delta, p.avgCost, "ADJUST", vid, reason)
         Audit.log("adjust", "part", partId, "${p.name} ${Qty.fmt(delta)} $reason")
     }
 

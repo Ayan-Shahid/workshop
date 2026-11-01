@@ -123,7 +123,7 @@ fun JobScreen(id: Long) {
                     Kv("Checked in", Dates.show(j.dateIn))
                     TextButton({ App.go(Screen.Customer(j.customerId)) }) { Text("Open customer history") }
                 }
-                Section("Check-in", actions = { if (!closed) Button({ App.act("Saved") { Jobs.update(edit) } }) { Text("Save") } }) {
+                Section("Check-in", actions = { Button({ App.act("Saved") { Jobs.update(edit) } }) { Text("Save") } }) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Field("Odometer", edit.odometer.toString(), { edit = edit.copy(odometer = it.toLongOrNull() ?: 0) }, Modifier.weight(1f), numeric = true)
                         Dropdown("Fuel", listOf("Empty", "Quarter", "Half", "Three quarters", "Full"), edit.fuel, { edit = edit.copy(fuel = it) }, Modifier.weight(1f))
@@ -193,6 +193,15 @@ fun JobScreen(id: Long) {
                         if (j.invoiceId != null && j.status != "Delivered") Button({ deliver = true }) { IconText(Icons.Default.ExitToApp, "Deliver car") }
                         if (j.status == "Delivered") OutlinedButton({ App.act { Printers.open(Documents.gatePass(id)) } }) { IconText(Icons.Default.Print, "Gate pass") }
                         if (!closed) TextButton({ cancel = true }) { Text("Cancel job", color = MaterialTheme.colorScheme.error) }
+                        if (j.invoiceId != null) {
+                            val invNo = remember(j.invoiceId) { Billing.get(j.invoiceId).no }
+                            DeleteButton("Change this job and bill again?", "Invoice $invNo is taken off the books (its payments stay with the customer) and the job " +
+                                "opens for changes. Make the invoice again when done: it keeps the number $invNo.", "Change job and re-bill") {
+                                App.act("Job open for changes") { Edits.deleteInvoice(j.invoiceId, keepNumberForJob = true) }
+                            }
+                        } else DeleteButton("Delete ${j.jobNo}?", "The job card, its work lines, timer and photos are deleted. Parts issued to it go back on the shelf.", "Delete job card") {
+                            if (App.act("Job card deleted") { Edits.deleteJob(id) }) App.goBack()
+                        }
                     }
                 }
             }
@@ -325,6 +334,7 @@ private fun EditLine(l: JobLine, techs: List<Technician>, onDone: () -> Unit) {
     FormDialog("Edit line", onDone, { if (App.act("Saved") { Jobs.updateLine(e) }) onDone() }) {
         Field("Description", e.description, { e = e.copy(description = it) }, Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            QtyField("Qty", e.qty, { e = e.copy(qty = it ?: 0) }, Modifier.weight(1f))
             MoneyField("Rate", e.rate, { e = e.copy(rate = it ?: 0) }, Modifier.weight(1f)); MoneyField("Discount", e.discount, { e = e.copy(discount = it ?: 0) }, Modifier.weight(1f))
         }
         Dropdown("Technician", listOf<Technician?>(null) + techs, techs.firstOrNull { it.id == e.technicianId }, { e = e.copy(technicianId = it?.id) }, text = { it?.name ?: "—" })

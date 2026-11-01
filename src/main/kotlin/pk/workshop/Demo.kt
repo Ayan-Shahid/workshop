@@ -117,7 +117,8 @@ object Demo {
     private fun seed() {
         val today = Dates.today()
         realToday = today
-        val start = LocalDate.parse(today).withDayOfMonth(1).minusMonths(3).toString()   // e.g. 1 July when today is in October
+        // e.g. 1 July when today is in October; early in a month one more month, so there's always over three months of history
+        val start = LocalDate.parse(today).withDayOfMonth(1).minusMonths(if (LocalDate.parse(today).dayOfMonth < 12) 4 else 3).toString()
         startDate = start
         at(start, 8)
 
@@ -282,6 +283,10 @@ object Demo {
             else Books.closeCash(d, cd.expected, "")
         }
         todayState(today, carryOver)
+        // Early in a month the last advance was already deducted from salary: one given this morning
+        if (StaffBook.list().none { StaffBook.advanceBalance(it.id) > 0 }) {
+            at(today, 10); StaffBook.giveAdvance(StaffBook.list().first { it.name.startsWith("Javed") }.id, rs(5000), "Cash", today)
+        }
 
         // Bank statement ticked up to four days ago
         at(today, 9)
@@ -391,7 +396,8 @@ object Demo {
                 at(d, 17); Ledger.reverse(v, d, "Duplicate entry") }
         }
         poToReceive?.let { (po, on) -> if (d >= on) { at(d, 14); Purchasing.receiveOrder(po, "MAP-PO-${po}", d, rs(400)); poToReceive = null } }
-        if (day.dayOfMonth == 8 && day.monthValue == LocalDate.parse(realToday).monthValue) {
+        // An advance this month still to be deducted (on the 8th, or today if it's earlier in the month)
+        if (day.dayOfMonth == minOf(8, LocalDate.parse(realToday).dayOfMonth) && day.monthValue == LocalDate.parse(realToday).monthValue) {
             at(d, 10); StaffBook.giveAdvance(StaffBook.list().first { it.name.startsWith("Javed") }.id, rs(5000), "Cash", d)
         }
         fleetPayments(d, day, i)
@@ -399,6 +405,7 @@ object Demo {
     private var poToReceive: Pair<Long, String>? = null
 
     private var rehmanCheques = 0
+    private var rehmanBounced = false
     private fun fleetPayments(d: String, day: LocalDate, i: Int) {
         val today = LocalDate.parse(realToday)
         // Rehman Transport pays monthly by cheque with 4% income tax withheld
@@ -410,11 +417,13 @@ object Demo {
                 at(d, 12)
                 val wht = round(bal * 4 / 100, 100)
                 rehmanCheques++
-                val chequeDate = if (day.monthValue == today.monthValue) Dates.plusDays(realToday, 4) else d
+                // The latest cheque is post-dated and still in hand
+                val latest = day.monthValue == today.monthValue || (today.dayOfMonth < 10 && day.monthValue == today.minusMonths(1).monthValue)
+                val chequeDate = if (latest) Dates.plusDays(realToday, 4) else d
                 val pid = Billing.receive(id, bal - wht, "Cheque", "MCB cheque 00${4400 + rehmanCheques}", d, null, wht, chequeDate, "Monthly settlement")
                 when {
-                    day.monthValue == today.monthValue -> {} // post-dated, still in hand
-                    rehmanCheques == 2 -> pending += Triple(Dates.plusDays(d, 4), "bounce", pid)
+                    latest -> {} // post-dated, still in hand
+                    !rehmanBounced -> { rehmanBounced = true; pending += Triple(Dates.plusDays(d, 4), "bounce", pid) }
                     else -> pending += Triple(Dates.plusDays(d, 3), "clear", pid)
                 }
             }
@@ -591,7 +600,7 @@ object Demo {
 
     private fun restock(d: String) {
         val month = LocalDate.parse(d).monthValue
-        val startMonth = LocalDate.parse(realToday).minusMonths(3).monthValue
+        val startMonth = LocalDate.parse(startDate).monthValue
         val inflation = if (month != startMonth && month != (startMonth % 12) + 1) 104 else 100   // costs went up 4% in the third month
         partDefs.filter { it.restock && stock(it.key) < q(it.reorder * 2) }.groupBy { supplierFor(it) }.forEach { (s, defs) ->
             val lines = defs.map { p ->

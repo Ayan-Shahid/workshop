@@ -67,6 +67,11 @@ fun CustomerScreen(id: Long) {
     var newJob by remember { mutableStateOf(false) }
     Page(c.name, back = true, actions = {
         OutlinedButton({ edit = true }) { IconText(Icons.Default.Edit, "Edit") }
+        DeleteButton("Delete ${c.name}?", "A customer with no bills, jobs or payments is erased together with their vehicles. " +
+            "One with history is archived (hidden from lists) instead, so old bills and statements stay correct.") {
+            var r: Edits.Removed? = null
+            if (App.act { r = Edits.deleteCustomer(id) }) { App.toast(Edits.message(r!!, c.name)); App.goBack() }
+        }
         OutlinedButton({ stmt = true }) { IconText(Icons.Default.Description, "Statement") }
         if (balance > 0) OutlinedButton({ App.act { WhatsApp.send(c.phone, WhatsApp.paymentReminderText(c.name, balance), "customer", id) } }) { IconText(Icons.Default.Chat, "Payment reminder") }
         OutlinedButton({ App.go(Screen.CounterSale(id)) }) { IconText(Icons.Default.PointOfSale, "Sell parts") }

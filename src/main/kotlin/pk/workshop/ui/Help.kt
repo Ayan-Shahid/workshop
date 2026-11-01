@@ -140,7 +140,7 @@ object Help {
             "Bills, payments, purchases and salaries post themselves. Use Expenses for rent, bills, fuel and other costs.",
             "Every evening: Cash closing. Count the notes; any difference is recorded.",
             "Once a month: Bank reconciliation (tick what's on the bank statement), then lock the month in Month locks.",
-            "Mistakes are never edited: open the voucher and Reverse it, then enter it again correctly.")
+            "Mistakes: open the voucher and choose Edit or Delete. Entries made by a bill, payment or salary are changed on that bill, payment or salary.")
         Screen.Staff -> listOf(
             "Staff holds everyone with their salary; Technicians are the people chosen on labour lines.",
             "Give advance records money given early; Pay salary deducts it and adds commission.",

@@ -59,6 +59,10 @@ fun VehicleForm(initial: Vehicle, onDismiss: () -> Unit, onSaved: (Long) -> Unit
     FormDialog(if (initial.id == 0L) "New vehicle" else "Edit vehicle", onDismiss, {
         var id = 0L
         if (App.act("Vehicle saved") { id = Vehicles.save(v) }) onSaved(id)
+    }, extraButtons = {
+        if (initial.id != 0L) DeleteButton("Delete ${initial.regNo}?", "The vehicle is removed. (A car with job cards or bills can't be deleted; transfer it to the new owner instead.)") {
+            if (App.act("Vehicle deleted") { Edits.deleteVehicle(initial.id) }) onDismiss()
+        }
     }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Owner: " + (if (v.customerId != 0L) Customers.get(v.customerId).name else "not chosen"), Modifier.weight(1f))
@@ -182,7 +186,21 @@ fun InvoiceDialog(invoiceId: Long, onDismiss: () -> Unit) {
     var pay by remember { mutableStateOf(false) }
     var credit by remember { mutableStateOf(false) }
     var fbr by remember { mutableStateOf(false) }
+    var openPay by remember { mutableStateOf<Long?>(null) }
     FormDialog("${inv.kind} ${inv.no}", onDismiss, null, width = 860.dp, extraButtons = {
+        val paidNote = if (inv.paid > 0 && inv.kind != "Credit note") " The ${Money.rs(inv.paid)} paid on it stays with the customer and goes to their other unpaid bills." else ""
+        DeleteButton("Delete ${inv.no}?", when {
+            inv.kind == "Credit note" -> "The credit note is removed: returned parts come off the shelf again and the original bill is owed again."
+            inv.jobId != null -> "The invoice is removed from the books and job card ${inv.jobNo} goes back to unbilled.$paidNote"
+            else -> "The sale is removed from the books and its parts go back on the shelf.$paidNote"
+        }) { if (App.act("${inv.no} deleted") { Edits.deleteInvoice(invoiceId) }) onDismiss() }
+        if (inv.kind != "Credit note") {
+            if (inv.jobId == null) OutlinedButton({ onDismiss(); App.go(Screen.CounterSale(inv.customerId, editId = invoiceId)) }) { IconText(Icons.Default.Edit, "Edit") }
+            else DeleteButton("Change the job and bill again?", "${inv.no} comes off the books and job card ${inv.jobNo} opens for changes. " +
+                "Make the invoice again from the job when done; it keeps the number ${inv.no}.$paidNote", "Change job and re-bill") {
+                if (App.act("Job open for changes") { Edits.deleteInvoice(invoiceId, keepNumberForJob = true) }) { onDismiss(); App.go(Screen.Job(inv.jobId)) }
+            }
+        }
         if (inv.kind != "Credit note" && inv.customerId != null) {
             if (inv.due > 0) Button({ pay = true }) { Text("Receive payment") }
             OutlinedButton({ credit = true }) { Text("Credit note / return") }
@@ -213,7 +231,7 @@ fun InvoiceDialog(invoiceId: Long, onDismiss: () -> Unit) {
             C("Amount", 1f, true) { plain(it.net + it.tax) }), Modifier.heightIn(max = 260.dp))
         if (pays.isNotEmpty()) {
             Text("Payments", style = MaterialTheme.typography.titleSmall)
-            pays.forEach { Text("${Dates.show(it.str("date"))} · ${it.str("pay_no")} · ${it.str("method")} ${it.str("reference")} · ${Money.rs(it.long("amount"))}") }
+            pays.forEach { r -> TextButton({ openPay = r.long("id") }) { Text("${Dates.show(r.str("date"))} · ${r.str("pay_no")} · ${r.str("method")} ${r.str("reference")} · ${Money.rs(r.long("amount"))}") } }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton({ App.act { Printers.open(Documents.invoice(invoiceId)) } }) { IconText(Icons.Default.PictureAsPdf, "Open A4 PDF") }
@@ -227,6 +245,7 @@ fun InvoiceDialog(invoiceId: Long, onDismiss: () -> Unit) {
     }
     if (pay && inv.customerId != null) ReceivePaymentDialog(inv.customerId, invoiceId, inv.due, { pay = false })
     if (credit) CreditNoteDialog(invoiceId, { credit = false })
+    openPay?.let { PaymentDialog(it) { openPay = null } }
     if (fbr) {
         var n by remember { mutableStateOf(inv.fbrNo.takeIf { it != "PENDING" } ?: "") }
         FormDialog("FBR invoice number", { fbr = false }, { if (App.act("Saved") { Fbr.setNumber(invoiceId, n) }) fbr = false }) {
@@ -253,5 +272,44 @@ fun CreditNoteDialog(invoiceId: Long, onDismiss: () -> Unit) {
             }
         }
         Field("Reason", reason, { reason = it }, Modifier.fillMaxWidth())
+    }
+}
+
+// ---------------- change or delete a payment ----------------
+
+/** Shows a received or made payment, with Edit and Delete. */
+@Composable
+fun PaymentDialog(paymentId: Long, onDismiss: () -> Unit) {
+    val p = remember(App.version, paymentId) { pk.workshop.db.Db.one("SELECT * FROM payments WHERE id=?", paymentId) } ?: run { onDismiss(); return }
+    val incoming = p.str("direction") == "IN"
+    val party = Ledger.partyName(p.str("party_type"), p.long("party_id"))
+    val locked = p.str("method") == "Credit note"
+    val chequeDone = p.str("cheque_status") in setOf("Cleared", "Bounced")
+    var method by remember { mutableStateOf(p.str("method")) }
+    var amount by remember { mutableStateOf<Long?>(p.long("amount")) }
+    var wht by remember { mutableStateOf<Long?>(p.long("wht")) }
+    var ref by remember { mutableStateOf(p.str("reference")) }
+    var date by remember { mutableStateOf(p.str("date")) }
+    var chq by remember { mutableStateOf(p.str("cheque_date").ifBlank { p.str("date") }) }
+    var note by remember { mutableStateOf(p.str("note")) }
+    FormDialog("${p.str("pay_no")} · ${if (incoming) "from" else "to"} $party", onDismiss, if (locked || chequeDone) null else ({
+        if (App.act("Payment changed") { Edits.editPayment(paymentId, Edits.PaymentEdit(amount ?: fail("Enter a valid amount."), method, ref, date, note, wht ?: 0, if (method == "Cheque") chq else null)) }) onDismiss()
+    }), saveText = "Save changes", extraButtons = {
+        if (!locked) DeleteButton("Delete ${p.str("pay_no")}?", (if (incoming) "$party will owe this amount again." else "You will owe $party this amount again.") +
+            " The ledger entry" + (if (p.str("method") == "Cheque") " and cheque entries are" else " is") + " removed.") {
+            if (App.act("Payment deleted") { Edits.deletePayment(paymentId) }) onDismiss()
+        }
+    }) {
+        when {
+            locked -> Text("This was applied by a credit note. Delete the credit note to remove it.")
+            chequeDone -> Text("This cheque is ${p.str("cheque_status").lowercase()}. To change it, first put it back in hand (Billing › Cheques › Undo), or delete it.")
+        }
+        Dropdown("Method", Defaults.payMethods + if (incoming) listOf("Loyalty points") else emptyList(), method, { method = it })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { MoneyField("Amount", amount, { amount = it }, Modifier.weight(1f)); DateField("Date", date, { date = it }) }
+        if (method != "Cash" && method != "Loyalty points") Field(if (method == "Cheque") "Cheque no and bank" else "Transaction ID / reference", ref, { ref = it }, Modifier.fillMaxWidth())
+        if (method == "Cheque" && incoming) DateField("Cheque date", chq, { chq = it })
+        if (incoming && ((wht ?: 0) > 0 || Customers.get(p.long("party_id")).type in setOf("Company / fleet", "Insurance company")))
+            MoneyField("Income tax withheld by the company", wht, { wht = it }, Modifier.fillMaxWidth())
+        Field("Note", note, { note = it }, Modifier.fillMaxWidth())
     }
 }

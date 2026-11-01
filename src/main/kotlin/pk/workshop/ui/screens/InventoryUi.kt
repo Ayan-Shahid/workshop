@@ -93,9 +93,15 @@ fun PartForm(p0: Part, onDone: () -> Unit) {
     var p by remember { mutableStateOf(p0) }
     var codes by remember { mutableStateOf(p0.barcodes.joinToString(", ")) }
     val moves = remember(p0.id, App.version) { if (p0.id == 0L) emptyList() else Inventory.moves(p0.id) }
+    var move by remember { mutableStateOf<StockMove?>(null) }
     FormDialog(if (p0.id == 0L) "New part" else p0.name, onDone, {
         if (App.act("Part saved") { Inventory.save(p.copy(barcodes = codes.split(',').map { it.trim() }.filter { it.isNotEmpty() })) }) onDone()
-    }, width = 760.dp) {
+    }, width = 760.dp, extraButtons = {
+        if (p0.id != 0L) DeleteButton("Delete ${p0.name}?", "A part that was never bought, sold or used is erased. One with history is archived (hidden) " +
+            "instead, so old bills stay correct; its stock must be zero first.") {
+            App.act { App.toast(Edits.message(Edits.deletePart(p0.id), p0.name)) }; onDone()
+        }
+    }) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Field("Name", p.name, { p = p.copy(name = it) }, Modifier.weight(2f)); Field("Part no (OEM)", p.partNo, { p = p.copy(partNo = it) }, Modifier.weight(1f))
         }
@@ -117,9 +123,34 @@ fun PartForm(p0: Part, onDone: () -> Unit) {
         Field("Barcodes (comma separated; blank = generate one)", codes, { codes = it }, Modifier.fillMaxWidth())
         if (p0.id != 0L) Check("Active", p.active) { p = p.copy(active = it) }
         if (moves.isNotEmpty()) {
-            Text("Recent movements", style = MaterialTheme.typography.titleSmall)
+            Text("Recent movements (click an adjustment or opening stock to change it)", style = MaterialTheme.typography.titleSmall)
             DataTable(moves.take(30), listOf(C("Date", 1f) { Dates.show(it.date) }, C("Type", 1f) { it.kind }, C("Qty", 0.7f, true) { Qty.fmt(it.qty) },
-                C("Cost", 0.8f, true) { plain(it.unitCost) }, C("Ref", 1.4f) { listOf(it.ref, it.note).filter { s -> s.isNotBlank() }.joinToString(" ") }), Modifier.heightIn(max = 220.dp))
+                C("Cost", 0.8f, true) { plain(it.unitCost) }, C("Ref", 1.4f) { listOf(it.ref, it.note).filter { s -> s.isNotBlank() }.joinToString(" ") }), Modifier.heightIn(max = 220.dp),
+                onClick = { if (it.kind == "ADJUST" || it.kind == "OPENING") move = it })
+        }
+    }
+    move?.let { m -> StockMoveDialog(m.id, m.kind, m.qty, m.note, p0.unit) { move = null } }
+}
+
+/** Change or delete a stock adjustment, or delete an opening-stock entry. */
+@Composable
+fun StockMoveDialog(moveId: Long, kind: String, qty: Long, note: String, unit: String, onDone: () -> Unit) {
+    val adjust = kind == "ADJUST"
+    var add by remember { mutableStateOf(qty > 0) }
+    var amount by remember { mutableStateOf<Long?>(kotlin.math.abs(qty)) }
+    var reason by remember { mutableStateOf(note) }
+    FormDialog(if (adjust) "Stock adjustment" else "Opening stock", onDone, if (adjust) ({
+        if (App.act("Adjustment changed") { Edits.editStockAdjustment(moveId, if (add) amount ?: 0 else -(amount ?: 0), reason) }) onDone()
+    }) else null, saveText = "Save changes", extraButtons = {
+        DeleteButton("Delete this ${if (adjust) "adjustment" else "opening stock"}?", "The quantity and its ledger entry are removed, as if it had never been entered.") {
+            if (App.act("Deleted") { Edits.deleteStockMove(moveId) }) onDone()
+        }
+    }) {
+        if (adjust) {
+            Row { FilterChip(!add, { add = false }, { Text("Removed") }); Spacer(Modifier.width(8.dp)); FilterChip(add, { add = true }, { Text("Added") }) }
+            QtyField("Quantity ($unit)", amount, { amount = it }); Field("Reason", reason, { reason = it }, Modifier.fillMaxWidth())
+        } else {
+            Text("${Qty.fmt(qty)} $unit entered as opening stock. To change it, delete it and enter the opening stock again.")
         }
     }
 }
@@ -143,6 +174,8 @@ private fun CountsTab() {
         val status = remember(App.version, id) { counts.firstOrNull { it.long("id") == id }?.str("status") ?: "Open" }
         var last by remember { mutableStateOf("") }
         FormDialog("Stock count #$id", { open = null }, null, width = 900.dp, extraButtons = {
+            DeleteButton("Delete stock count #$id?", if (status == "Open") "The count sheet is deleted. Nothing in stock changes." else
+                "The stock adjustments this count made are undone, and the count is deleted.") { if (App.act("Count deleted") { Edits.deleteCount(id) }) open = null }
             if (status == "Open") Button({ if (App.act("Count approved; stock adjusted") { Inventory.approveCount(id) }) open = null }) { BtnText("Approve count") }
         }) {
             if (status == "Open") {
@@ -195,7 +228,12 @@ private fun MovesTab() {
         pk.workshop.db.Db.query("""SELECT m.*, p.name, p.unit FROM stock_moves m JOIN parts p ON p.id=m.part_id WHERE m.date BETWEEN ? AND ? ORDER BY m.date DESC, m.id DESC LIMIT 3000""", from, to)
     }
     Toolbar { DateField("From", from, { from = it }); DateField("To", to, { to = it }) }
+    var move by remember { mutableStateOf<pk.workshop.db.Row?>(null) }
+    Text("Click a stock adjustment or opening stock to change or delete it. Other movements come from bills and job cards; change those documents instead.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
     DataTable(rows, listOf(C("Date", 0.8f) { Dates.show(it.str("date")) }, C("Part", 2f) { it.str("name") }, C("Movement", 1f) { it.str("kind") },
         C("Qty", 0.8f, true) { Qty.fmt(it.long("qty")) + " " + it.str("unit") }, C("Unit cost", 0.8f, true) { plain(it.long("unit_cost")) },
-        C("Reference", 1.4f) { listOf(it.str("ref_type"), it.str("note")).filter { s -> s.isNotBlank() }.joinToString(" ") }), Modifier.fillMaxSize())
+        C("Reference", 1.4f) { listOf(it.str("ref_type"), it.str("note")).filter { s -> s.isNotBlank() }.joinToString(" ") }), Modifier.fillMaxSize(),
+        onClick = { if (it.str("kind") == "ADJUST" || it.str("kind") == "OPENING") move = it })
+    move?.let { m -> StockMoveDialog(m.long("id"), m.str("kind"), m.long("qty"), m.str("note"), m.str("unit")) { move = null } }
 }

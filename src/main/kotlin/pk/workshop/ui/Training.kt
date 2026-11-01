@@ -124,7 +124,7 @@ object Training {
     )
 
     private val booksTour = listOf(
-        S("tab.Vouchers", "Everything in the books", "Bills, payments, purchases and salaries are entered by the app. Each entry is a voucher you can open. Mistakes are never edited: open the voucher and Reverse it.", tab("Books", 0)),
+        S("tab.Vouchers", "Everything in the books", "Bills, payments, purchases and salaries are entered by the app. Each entry is a voucher you can open. To fix a mistake, open the voucher and choose Edit or Delete.", tab("Books", 0)),
         S("btn.New voucher", "Your own entries", "Cash payment (CPV), cash receipt (CRV), bank payment (BPV), bank receipt (BRV) or journal (JV), for anything the app doesn't enter itself, such as the owner taking money out.", tab("Books", 0)),
         S("sec.Add an expense", "Shop expenses", "Rent, electricity, fuel, tea, tools: choose the type, amount and how it was paid.", tab("Books", 1)),
         S("sec.Close the day", "Every evening", "Count the cash in the drawer and enter it. The app shows what should be there; any short or extra amount is recorded.", tab("Books", 2)),

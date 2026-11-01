@@ -161,7 +161,11 @@ private fun ListsTab() {
     }
     edit?.let { s0 ->
         var s by remember(s0) { mutableStateOf(s0) }
-        FormDialog(if (s0.id == 0L) "New labour package" else s0.name, { edit = null }, { if (App.act("Saved") { Services.save(s) }) edit = null }) {
+        FormDialog(if (s0.id == 0L) "New labour package" else s0.name, { edit = null }, { if (App.act("Saved") { Services.save(s) }) edit = null }, extraButtons = {
+            if (s0.id != 0L) DeleteButton("Delete ${s0.name}?", "It is removed from the quick-pick list. Old job cards and bills keep their wording.") {
+                if (App.act("Deleted") { Edits.deleteService(s0.id) }) edit = null
+            }
+        }) {
             Field("Name", s.name, { s = s.copy(name = it) }, Modifier.fillMaxWidth()); MoneyField("Rate", s.price, { s = s.copy(price = it ?: 0) })
             Dropdown("Department", Defaults.departments, s.department.ifBlank { null }, { s = s.copy(department = it) })
             if (s0.id != 0L) Check("Active", s.active) { s = s.copy(active = it) }

@@ -231,7 +231,15 @@ Technicians:
 - **New voucher:**
   - **CPV:** pay a misc expense in cash.
   - **JV:** move money between two accounts.
-  - **Reverse** it again.
+  - **Edit** it (change the amount), then **Delete** it.
+
+**Editing and deleting (anything):**
+- **Counter sale:** Billing › open a counter bill › **Edit**. Change a quantity and save: the number stays the same, and the stock and books follow.
+- **Job bill:** open a job's invoice › **Change job and re-bill**. The job opens again; change a line, then make the invoice. It keeps its old number.
+- **Purchase bill:** Purchasing › Purchase bills › open one › **Edit** the cost. If the parts are already sold, the cost difference goes to cost of parts automatically.
+- **Payments:** Billing › Payments received (or Purchasing › Payments made) › click one › edit or delete.
+- **Stock adjustment:** Inventory › Stock movements › click an ADJUST line.
+- **Locked month:** lock a month, then try to delete a bill from it. It refuses. Unlock it again.
 
 **Expenses:**
 - Rent on the 1st, LESCO bills, gas, internet, staff food, fuel, generator service and tools.

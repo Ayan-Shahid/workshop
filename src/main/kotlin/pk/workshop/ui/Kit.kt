@@ -82,7 +82,7 @@ sealed class Screen(val title: String) {
     data class Job(val id: Long) : Screen("Job card")
     data object Bookings : Screen("Bookings")
     data object Billing : Screen("Billing")
-    data class CounterSale(val customerId: Long? = null) : Screen("Counter sale")
+    data class CounterSale(val customerId: Long? = null, val editId: Long? = null) : Screen("Counter sale")
     data object Customers : Screen("Customers")
     data class Customer(val id: Long) : Screen("Customer")
     data object Inventory : Screen("Inventory")
@@ -330,6 +330,17 @@ fun FormDialog(title: String, onDismiss: () -> Unit, onSave: (() -> Unit)?, save
             }
         }
     }
+}
+
+/** A red delete button that asks before doing anything. [onYes] does the work (wrap it in App.act). */
+@Composable
+fun DeleteButton(title: String, text: String, label: String = "Delete", onYes: () -> Unit) {
+    var ask by remember { mutableStateOf(false) }
+    TextButton({ ask = true }) {
+        Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
+        Text(label, color = MaterialTheme.colorScheme.error)
+    }
+    if (ask) Confirm(title, text, label, onYes) { ask = false }
 }
 
 @Composable

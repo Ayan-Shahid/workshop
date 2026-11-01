@@ -179,7 +179,7 @@ fun Shell() {
                 is Screen.Job -> JobScreen(s.id)
                 Screen.Bookings -> BookingsScreen()
                 Screen.Billing -> BillingScreen()
-                is Screen.CounterSale -> CounterSaleScreen(s.customerId)
+                is Screen.CounterSale -> CounterSaleScreen(s.customerId, s.editId)
                 Screen.Customers -> CustomersScreen()
                 is Screen.Customer -> CustomerScreen(s.id)
                 Screen.Inventory -> InventoryScreen()

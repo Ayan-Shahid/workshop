@@ -89,8 +89,7 @@ object Jobs {
     }
 
     fun update(j: JobCard) {
-        val old = get(j.id)
-        if (old.status == "Delivered") fail("A delivered job card cannot be changed.")
+        get(j.id)
         Db.exec("""UPDATE job_cards SET odometer=?,fuel=?,complaint=?,inspection=?,items_in_car=?,brought_by=?,brought_phone=?,priority=?,department=?,
             promised_at=?,bay=?,diagnosis=?,qc_note=?,notes=? WHERE id=?""", j.odometer, j.fuel, j.complaint, j.inspection, j.itemsInCar, j.broughtBy,
             j.broughtPhone, j.priority, j.department, j.promisedAt, j.bay, j.diagnosis, j.qcNote, j.notes, j.id)
@@ -147,12 +146,30 @@ object Jobs {
         id
     }
 
-    fun updateLine(l: JobLine) {
+    fun updateLine(l: JobLine) = Db.tx {
         val old = lines(l.jobId).firstOrNull { it.id == l.id } ?: fail("Line not found")
-        if (get(l.jobId).invoiceId != null) fail("This job is billed; lines cannot change.")
-        if (old.partId != null && old.issued && old.qty != l.qty) fail("To change a part's quantity, remove the line and add it again.")
-        Db.exec("UPDATE job_lines SET description=?, rate=?, discount=?, technician_id=?, vendor=?, cost=CASE WHEN kind='SUBLET' THEN ? ELSE cost END WHERE id=?",
-            l.description, l.rate, l.discount, l.technicianId, l.vendor, l.cost, l.id)
+        val j = get(l.jobId)
+        if (j.invoiceId != null) fail("This job is billed. To change it, open the invoice and choose \"Change the job and bill again\".")
+        if (l.qty <= 0) fail("Quantity must be above zero.")
+        var cost = old.cost
+        if (old.partId != null && old.issued && old.qty != l.qty) {
+            val p = Inventory.get(old.partId)
+            val d = l.qty - old.qty
+            if (d > 0) {
+                // More of the part: issue the extra from the shelf at today's average cost
+                if (p.qty < d) fail("Only ${Qty.fmt(p.qty)} ${p.unit} of ${p.name} in stock.")
+                Inventory.move(old.partId, Dates.today(), "ISSUE", -d, p.avgCost, "JC", l.jobId, j.jobNo)
+                cost += Money.times(p.avgCost, d)
+            } else {
+                // Less: the unused part goes back at what it cost when issued
+                val unit = Inventory.unitCost(old.cost, old.qty)
+                val back = Money.times(unit, -d)
+                Inventory.receive(old.partId, Dates.today(), -d, unit, "JC", l.jobId, "Returned from job", kind = "RETURN_IN")
+                cost -= back
+            }
+        }
+        Db.exec("UPDATE job_lines SET description=?, qty=?, rate=?, discount=?, technician_id=?, vendor=?, cost=CASE WHEN kind='SUBLET' THEN ? ELSE ? END WHERE id=?",
+            l.description, l.qty, l.rate, l.discount, l.technicianId, l.vendor, l.cost, cost, l.id)
     }
 
     private fun returnPart(l: JobLine) {

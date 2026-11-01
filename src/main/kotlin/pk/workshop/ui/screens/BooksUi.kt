@@ -80,20 +80,36 @@ fun VoucherDialog(id: Long, onDismiss: () -> Unit) {
     val v = remember(App.version, id) { Ledger.voucher(id) }
     val lines = remember(App.version, id) { Ledger.lines(id) }
     var reverse by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
+    val owner = remember(App.version, id) { Edits.voucherOwner(id) }
+    val editable = remember(App.version, id) { Edits.voucherEditable(id) }
     FormDialog("${v.no} · ${Ledger.typeNames[v.type] ?: v.type}", onDismiss, null, width = 820.dp, extraButtons = {
+        if (owner == null) DeleteButton("Delete ${v.no}?", when {
+            v.type == "STK" -> "The stock adjustment is undone: the quantity goes back on (or off) the shelf."
+            v.type == "OPEN" && v.refType == "part" -> "The opening stock comes off the shelf."
+            v.refType == "payment" -> "The cheque goes back to \"in hand\"."
+            v.type == "DEP" -> "The month's depreciation is undone on every asset."
+            v.type == "CASH" -> "The cash closing for that day is removed, so the day can be closed again."
+            v.reversalOf != null -> "The reversal is removed, so the original voucher counts again."
+            v.reversed -> "The voucher and its reversal are both removed."
+            else -> "The entry is removed from the books as if it had never been posted."
+        }) { if (App.act("${v.no} deleted") { Edits.deleteVoucher(id) }) onDismiss() }
         OutlinedButton({ App.act { Printers.open(Documents.voucher(id)) } }) { IconText(Icons.Default.Print, "Print") }
-        if (!v.reversed && v.type != "REV") OutlinedButton({ reverse = true }) { Text("Reverse") }
+        if (!v.reversed && v.type != "REV" && owner == null) OutlinedButton({ reverse = true }) { Text("Reverse") }
+        if (editable) Button({ editing = true }) { IconText(Icons.Default.Edit, "Edit") }
     }) {
+        if (owner != null) Text("Made by $owner. To change or delete it, open it there.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Kv("Date", Dates.show(v.date)); Kv("Narration", v.narration)
         v.attachment?.let { a -> TextButton({ App.act { Printers.open(java.io.File(a)) } }) { Text("Open attached bill") } }
         DataTable(lines, listOf(C("Account", 2.2f) { it.account }, C("Party / memo", 1.8f) { listOf(it.party, it.memo).filter { s -> s.isNotBlank() }.joinToString(" — ") },
             C("Debit", 1f, true) { if (it.debit > 0) plain(it.debit) else "" }, C("Credit", 1f, true) { if (it.credit > 0) plain(it.credit) else "" }),
             Modifier.heightIn(max = 400.dp), footer = listOf("Total", "", plain(lines.sumOf { it.debit }), plain(lines.sumOf { it.credit })))
     }
+    if (editing) ManualVoucherDialog(v.type, editId = id) { editing = false }
     if (reverse) {
         var reason by remember { mutableStateOf("") }
         FormDialog("Reverse ${v.no}", { reverse = false }, { if (App.act("Reversed") { Ledger.reverse(id, Dates.today(), reason.ifBlank { fail("Enter the reason.") }) }) { reverse = false; onDismiss() } }) {
-            Text("Posted vouchers are never edited. A reversing voucher cancels this one today.")
+            Text("A reversing voucher cancels this one today and keeps both on record. (To fix a mistake outright, use Edit or Delete instead.)")
             Field("Reason", reason, { reason = it }, Modifier.fillMaxWidth())
         }
     }
@@ -102,18 +118,32 @@ fun VoucherDialog(id: Long, onDismiss: () -> Unit) {
 private data class VLine(val account: Account? = null, val debit: Long = 0, val credit: Long = 0, val partyType: String? = null, val partyId: Long? = null, val memo: String = "")
 
 @Composable
-private fun ManualVoucherDialog(type: String, onDone: () -> Unit) {
+private fun ManualVoucherDialog(type: String, editId: Long? = null, onDone: () -> Unit) {
     val accounts = remember { Accounts.postable() }
     val cashBank = remember { Accounts.cashAndBank() }
-    var date by remember { mutableStateOf(Dates.today()) }
-    var narration by remember { mutableStateOf("") }
+    // Editing shows every line of the voucher (including the cash/bank side) as debits and credits
+    val old = remember(editId) { editId?.let { Ledger.voucher(it) } }
+    var date by remember { mutableStateOf(old?.date ?: Dates.today()) }
+    var narration by remember { mutableStateOf(old?.narration ?: "") }
     var cb by remember { mutableStateOf(cashBank.firstOrNull { it.sys == if (type.startsWith("C")) "CASH" else "BANK" }) }
     var attach by remember { mutableStateOf<java.io.File?>(null) }
-    val lines = remember { mutableStateListOf(VLine(), VLine()) }
+    val lines = remember { mutableStateListOf<VLine>().apply {
+        if (editId == null) { add(VLine()); add(VLine()) }
+        else pk.workshop.db.Db.query("SELECT * FROM voucher_lines WHERE voucher_id=? ORDER BY id", editId).forEach { r ->
+            add(VLine(Accounts.get(r.long("account_id")), r.long("debit"), r.long("credit"), r.strOrNull("party_type"), r.longOrNull("party_id"), r.str("memo")))
+        }
+    } }
     var pickParty by remember { mutableStateOf<Int?>(null) }
-    val isJv = type == "JV"
-    val payment = type == "CPV" || type == "BPV"
-    FormDialog("${Ledger.typeNames[type]} voucher ($type)", onDone, {
+    val isJv = type == "JV" || editId != null
+    val payment = !isJv && (type == "CPV" || type == "BPV")
+    FormDialog(if (old != null) "Change ${old.no}" else "${Ledger.typeNames[type]} voucher ($type)", onDone, {
+        if (old != null) {
+            if (App.act("${old.no} changed") {
+                Edits.replaceVoucher(old.id, date, narration, lines.filter { it.account != null && (it.debit != 0L || it.credit != 0L) }
+                    .map { LedgerLine(it.account!!.id, it.debit, it.credit, it.partyType, it.partyId, it.memo.ifBlank { null }) })
+            }) onDone()
+            return@FormDialog
+        }
         if (App.act("Voucher posted") {
                 val ls = lines.filter { it.account != null && (it.debit != 0L || it.credit != 0L) }.map {
                     LedgerLine(it.account!!.id, if (isJv) it.debit else if (payment) it.debit else 0, if (isJv) it.credit else if (!payment) it.debit else 0, it.partyType, it.partyId, it.memo.ifBlank { null })
@@ -122,11 +152,11 @@ private fun ManualVoucherDialog(type: String, onDone: () -> Unit) {
                     java.io.File(d, System.currentTimeMillis().toString() + "-" + f.name).also { f.copyTo(it) }.path }
                 Books.manual(type, date, narration, cb?.id, ls, saved)
             }) onDone()
-    }, saveText = "Post voucher", width = 920.dp) {
+    }, saveText = if (old != null) "Save changes" else "Post voucher", width = 920.dp) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             DateField("Date", date, { date = it })
-            if (!isJv) Dropdown(if (payment) "Paid from" else "Received into", cashBank, cb, { cb = it }, Modifier.width(260.dp), text = { it.name })
-            TextButton({ attach = FilePick.open("Attach a photo of the bill") }) { IconText(Icons.Default.AttachFile, attach?.name ?: "Attach bill") }
+            if (old == null && !isJv) Dropdown(if (payment) "Paid from" else "Received into", cashBank, cb, { cb = it }, Modifier.width(260.dp), text = { it.name })
+            if (old == null) TextButton({ attach = FilePick.open("Attach a photo of the bill") }) { IconText(Icons.Default.AttachFile, attach?.name ?: "Attach bill") }
         }
         Field("Narration", narration, { narration = it }, Modifier.fillMaxWidth())
         Text(if (isJv) "Debits must equal credits." else if (payment) "Accounts paid (debited). The cash/bank side is credited automatically." else "Accounts received from (credited). The cash/bank side is debited automatically.",
@@ -223,8 +253,11 @@ private fun CashClosingTab() {
             Field("Note", note, { note = it }, Modifier.fillMaxWidth())
             Button({ App.act("Day closed") { Books.closeCash(date, c, note) } }, Modifier.fillMaxWidth()) { Text("Close cash for ${Dates.show(date)}") }
         }
+        var del by remember { mutableStateOf<pk.workshop.db.Row?>(null) }
         DataTable(closings, listOf(C("Date", 1f) { Dates.show(it.str("date")) }, C("Expected", 1f, true) { plain(it.long("expected")) }, C("Counted", 1f, true) { plain(it.long("counted")) },
-            C("Difference", 1f, true) { plain(it.long("difference")) }, C("Note", 2f) { it.str("note") }), Modifier.weight(1f).fillMaxHeight(), empty = "No closings yet")
+            C("Difference", 1f, true) { plain(it.long("difference")) }, C("Note", 2f) { it.str("note") }), Modifier.weight(1f).fillMaxHeight(), onClick = { del = it }, empty = "No closings yet")
+        del?.let { r -> Confirm("Delete the closing for ${Dates.show(r.str("date"))}?", "The closing" + (if (r.long("difference") != 0L) " and its cash difference entry are" else " is") +
+            " removed, so the day can be counted and closed again.", "Delete", { App.act("Closing deleted") { Edits.deleteCashClosing(r.long("id")) } }, { del = null }) }
     }
 }
 
@@ -367,7 +400,12 @@ private fun ChartTab() {
         var code by remember(a0) { mutableStateOf(a0.code) }; var name by remember(a0) { mutableStateOf(a0.name) }; var type by remember(a0) { mutableStateOf(a0.type) }
         var parent by remember(a0) { mutableStateOf(all.firstOrNull { it.id == a0.parentId }) }; var group by remember(a0) { mutableStateOf(a0.isGroup) }
         FormDialog(if (a0.id == 0L) "New account" else a0.name, { edit = null }, { if (App.act("Saved") { Accounts.save(a0.id.takeIf { it != 0L }, code, name, type, parent?.id, group) }) edit = null },
-            extraButtons = { if (a0.id != 0L && a0.sys == null) TextButton({ App.act { Accounts.setActive(a0.id, !a0.active) }; edit = null }) { Text(if (a0.active) "Deactivate" else "Activate") } }) {
+            extraButtons = { if (a0.id != 0L && a0.sys == null) {
+                DeleteButton("Delete ${a0.name}?", "An account with entries is archived (hidden from lists) instead of erased, so the books stay correct.") {
+                    App.act { App.toast(Edits.message(Edits.deleteAccount(a0.id), a0.name)) }; edit = null
+                }
+                TextButton({ App.act { Accounts.setActive(a0.id, !a0.active) }; edit = null }) { Text(if (a0.active) "Deactivate" else "Activate") }
+            } }) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Field("Code", code, { code = it }, Modifier.weight(0.5f)); Field("Name", name, { name = it }, Modifier.weight(1.5f)) }
             Dropdown("Type", listOf("ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPENSE"), type, { type = it }, text = { it.lowercase().replaceFirstChar { c -> c.uppercase() } })
             Dropdown("Under group", all.filter { it.isGroup }, parent, { parent = it; type = it.type }, text = { it.label })
@@ -380,6 +418,7 @@ private fun ChartTab() {
 private fun AssetsTab() {
     val list = remember(App.version) { Assets.list() }
     var add by remember { mutableStateOf(false) }
+    var editAsset by remember { mutableStateOf<FixedAsset?>(null) }
     var month by remember { mutableStateOf(Dates.today().take(7)) }
     Toolbar {
         Field("Month (yyyy-mm)", month, { month = it }, Modifier.width(160.dp))
@@ -389,7 +428,28 @@ private fun AssetsTab() {
     DataTable(list, listOf(C("Equipment", 2f) { it.name }, C("Bought", 0.8f) { Dates.show(it.bought) }, C("Cost", 1f, true) { plain(it.cost) },
         C("Per month", 0.9f, true) { plain(it.monthly) }, C("Depreciated", 1f, true) { plain(it.depreciated) }, C("Book value", 1f, true) { plain(it.bookValue) },
         C("", 0.8f, content = { a -> if (a.disposed == null) TextButton({ App.act("Marked disposed") { Assets.dispose(a.id, Dates.today()) } }) { Text("Dispose") } else Text("Disposed") })),
-        Modifier.fillMaxSize(), empty = "No equipment recorded", footer = listOf("", "", plain(list.sumOf { it.cost }), "", plain(list.sumOf { it.depreciated }), plain(list.sumOf { it.bookValue }), ""))
+        Modifier.fillMaxSize(), onClick = { editAsset = it }, empty = "No equipment recorded", footer = listOf("", "", plain(list.sumOf { it.cost }), "", plain(list.sumOf { it.depreciated }), plain(list.sumOf { it.bookValue }), ""))
+    editAsset?.let { a0 ->
+        var a by remember(a0) { mutableStateOf(a0) }
+        FormDialog(a0.name, { editAsset = null }, { if (App.act("Saved") { Edits.editAsset(a) }) editAsset = null }, extraButtons = {
+            DeleteButton("Delete ${a0.name}?", "The equipment and its purchase entry are removed from the books.") { if (App.act("Deleted") { Edits.deleteAsset(a0.id) }) editAsset = null }
+        }) {
+            Field("Name", a.name, { a = a.copy(name = it) }, Modifier.fillMaxWidth())
+            Field("Category", a.category, { a = a.copy(category = it) }, Modifier.fillMaxWidth())
+            val fixed = a0.depreciated > 0
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (fixed) Field("Cost", plain(a.cost), {}, Modifier.weight(1f), enabled = false) else MoneyField("Cost", a.cost, { a = a.copy(cost = it ?: 0) }, Modifier.weight(1f))
+                MoneyField("Scrap value", a.salvage, { a = a.copy(salvage = it ?: 0) }, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (fixed) Field("Bought on", Dates.show(a.bought), {}, Modifier.weight(1f), enabled = false) else DateField("Bought on", a.bought, { a = a.copy(bought = it) })
+                Field("Useful life (months)", a.lifeMonths.toString(), { a = a.copy(lifeMonths = it.toIntOrNull() ?: 0) }, Modifier.weight(1f), numeric = true)
+            }
+            if (fixed) Text("Depreciation has been charged, so cost and date are fixed. Delete those depreciation months (Vouchers, type DEP) to change them.", style = MaterialTheme.typography.bodySmall)
+            Field("Notes", a.notes, { a = a.copy(notes = it) }, Modifier.fillMaxWidth())
+            if (a0.disposed != null) Check("Disposed on ${Dates.show(a0.disposed)} (untick to put it back in use)", a.disposed != null) { a = a.copy(disposed = if (it) a0.disposed else null) }
+        }
+    }
     if (add) {
         var a by remember { mutableStateOf(FixedAsset()) }; var paid by remember { mutableStateOf(false) }; var method by remember { mutableStateOf("Cash") }
         FormDialog("Add equipment", { add = false }, { if (App.act("Saved") { Assets.add(a, if (paid) method else null) }) add = false }) {

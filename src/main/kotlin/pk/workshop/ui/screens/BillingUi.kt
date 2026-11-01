@@ -53,6 +53,11 @@ fun BookingsScreen() {
         var pickC by remember { mutableStateOf(false) }
         FormDialog(if (b0.id == 0L) "New booking" else "Booking #${b0.id}", { edit = null }, {
             if (App.act("Booking saved") { Bookings.save(b.copy(whenAt = "${date}T$time")) }) edit = null
+        }, extraButtons = {
+            if (b0.id != 0L) DeleteButton("Delete this booking?", "The booking is removed." + if (b0.jobId != null) " Its job card stays." else "") {
+                if (App.act("Booking deleted") { Edits.deleteBooking(b0.id) }) edit = null
+            }
+            if (b0.id != 0L) Dropdown("Status", listOf("Booked", "Arrived", "Cancelled", "No-show"), b.status, { b = b.copy(status = it) }, Modifier.width(170.dp))
         }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Existing customer: " + (b.customerId?.let { Customers.get(it).name } ?: "none"), Modifier.weight(1f)); TextButton({ pickC = true }) { Text("Choose") }
@@ -116,10 +121,12 @@ private fun PaymentsTab() {
     var from by remember { mutableStateOf(Dates.today()) }
     var to by remember { mutableStateOf(Dates.today()) }
     val list = remember(App.version, from, to) { Billing.payments(from, to, "IN") }
-    Toolbar { DateField("From", from, { from = it }); DateField("To", to, { to = it }) }
+    var open by remember { mutableStateOf<Long?>(null) }
+    Toolbar { DateField("From", from, { from = it }); DateField("To", to, { to = it }); Text("Click a payment to change or delete it.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     DataTable(list, listOf(C("No", 1f) { it.no }, C("Date", 0.8f) { Dates.show(it.date) }, C("From", 1.6f) { it.party }, C("Method", 1f) { it.method },
         C("Reference", 1.2f) { it.reference }, C("For", 1f) { it.invoiceNo }, C("Tax withheld", 0.9f, true) { if (it.wht > 0) plain(it.wht) else "" }, C("Amount", 1f, true) { plain(it.amount) }),
-        Modifier.fillMaxSize(), footer = listOf("${list.size}", "", "", "", "", "", plain(list.sumOf { it.wht }), plain(list.sumOf { it.amount })))
+        Modifier.fillMaxSize(), onClick = { open = it.id }, footer = listOf("${list.size}", "", "", "", "", "", plain(list.sumOf { it.wht }), plain(list.sumOf { it.amount })))
+    open?.let { PaymentDialog(it) { open = null } }
 }
 
 @Composable
@@ -132,7 +139,7 @@ private fun ChequesTab() {
         C("", 1.6f, content = { r -> if (r.str("cheque_status") == "In hand") Row {
             TextButton({ App.act("Cheque cleared") { Billing.chequeCleared(r.long("id")) } }) { BtnText("Cleared") }
             TextButton({ App.act("Marked bounced; amount is owed again") { Billing.chequeBounced(r.long("id")) } }) { Text("Bounced", color = MaterialTheme.colorScheme.error) }
-        } })), Modifier.fillMaxSize(), empty = "No cheques")
+        } else TextButton({ App.act("Cheque back in hand") { Edits.undoCheque(r.long("id")) } }) { Text("Undo") } })), Modifier.fillMaxSize(), empty = "No cheques")
 }
 
 @Composable
@@ -153,9 +160,13 @@ private fun FbrTab() {
 private data class CartLine(val kind: String, val partId: Long?, val description: String, val qty: Long, val rate: Long, val discount: Long, val stock: Long?, val cost: Long)
 
 @Composable
-fun CounterSaleScreen(customerId: Long?) {
-    var customer by remember { mutableStateOf<Customer?>(customerId?.let { Customers.get(it) }) }
-    val cart = remember { mutableStateListOf<CartLine>() }
+fun CounterSaleScreen(customerId: Long?, editId: Long? = null) {
+    // Changing a saved sale: its lines are loaded and saving replaces it under the same number
+    val editing = remember(editId) { editId?.let { Billing.get(it) } }
+    var customer by remember(editId) { mutableStateOf<Customer?>((editing?.customerId ?: customerId)?.let { Customers.get(it) }) }
+    val cart = remember(editId) { mutableStateListOf<CartLine>().apply {
+        if (editId != null) Billing.lines(editId).forEach { l -> add(CartLine(l.kind, l.partId, l.description, l.qty, l.rate, l.discount, l.partId?.let { Inventory.get(it).qty + l.qty }, l.cost)) }
+    } }
     var discount by remember { mutableStateOf<Long?>(0) }
     var pickPart by remember { mutableStateOf(false) }
     var pickCust by remember { mutableStateOf(false) }
@@ -180,7 +191,7 @@ fun CounterSaleScreen(customerId: Long?) {
     }
     val showDisplay = Settings.bool(Settings.DISPLAY)
 
-    Page("Counter sale", actions = {
+    Page(if (editing != null) "Change ${editing.no}" else "Counter sale", back = editing != null, actions = {
         if (lastInv != null) OutlinedButton({ App.act("Receipt printed") { Printers.receipt(lastInv!!) } }) { IconText(Icons.Default.Receipt, "Reprint last receipt") }
         OutlinedButton({ cart.clear(); discount = 0 }) { Text("Clear") }
     }) {
@@ -217,12 +228,22 @@ fun CounterSaleScreen(customerId: Long?) {
                     Text(Money.words(totals.total), style = MaterialTheme.typography.bodySmall)
                 }
                 Spacer(Modifier.weight(1f))
+                if (editing != null) {
+                    Text("Payments already taken on this bill stay on it. If the new total is lower, the extra stays on the customer's account.", style = MaterialTheme.typography.bodySmall)
+                    Button({ if (App.act("${editing.no} changed") {
+                            if (cart.isEmpty()) fail("A bill needs at least one line. To remove the whole sale, delete it from Billing.")
+                            Edits.editCounterInvoice(editing.id, editing.date, customer?.id ?: Customers.walkIn(),
+                                cart.map { InvLine(it.kind, it.partId, it.description, it.qty, it.rate, it.discount) }, discount ?: 0, editing.notes)
+                        }) App.goBack() }, Modifier.fillMaxWidth().height(52.dp)) { BtnText("Save changes", fontSize = 18.sp) }
+                    OutlinedButton({ App.goBack() }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Discard changes") }
+                } else {
                 Button({ post()?.let { id -> lastInv = id; payFor = id } }, Modifier.fillMaxWidth().height(52.dp), enabled = cart.isNotEmpty()) {
                     BtnText("Take payment", fontSize = 18.sp)
                 }
                 OutlinedButton({ if (customer == null) App.toast("Choose the customer for a credit sale.") else post()?.let { id ->
                     lastInv = id; Customers.creditWarning(customer!!.id, 0)?.let { App.toast(it) }; cart.clear(); discount = 0; App.act { Printers.receipt(id) } } },
                     Modifier.fillMaxWidth().padding(top = 8.dp), enabled = cart.isNotEmpty()) { BtnText("Sell on credit (udhaar)") }
+                }
             }
         }
     }

@@ -92,7 +92,7 @@ object Billing {
      * Dr Receivable / Cr Sales, Cr Sales tax (FBR), Cr Services tax (province), plus Dr Cost of parts / Cr Stock.
      */
     fun post(kind: String, date: String, customerId: Long, vehicleId: Long?, jobId: Long?, input: List<InvLine>, invoiceDiscount: Long, notes: String,
-             insurerId: Long? = null, insurerShare: Long = 0): Long = Db.tx {
+             insurerId: Long? = null, insurerShare: Long = 0, no: String? = null, keepId: Long? = null): Long = Db.tx {
         if (input.isEmpty()) fail("Add at least one line.")
         if (input.any { it.qty <= 0 }) fail("Quantities must be above zero.")
         Ledger.checkOpen(date)
@@ -103,10 +103,11 @@ object Billing {
             if (l.kind == "PART" && l.partId != null) l.copy(cost = Money.times(Inventory.get(l.partId).avgCost, l.qty)) else l })
         if (insurerShare < 0 || insurerShare > t.total) fail("The insurer's share must be between zero and the bill total.")
         if (insurerShare > 0 && insurerId == null) fail("Choose the insurance company.")
-        val no = Numbers.next("INV", date)
+        @Suppress("NAME_SHADOWING") val no = no ?: Numbers.next("INV", date)
         val cost = t.lines.filter { it.isGoods }.sumOf { it.cost }
-        val id = Db.insert("""INSERT INTO invoices(inv_no,kind,date,customer_id,vehicle_id,job_id,goods_net,services_net,discount,goods_tax,services_tax,rounding,
-            total,cost,insurer_id,insurer_share,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", no, kind, date, customerId, vehicleId, jobId,
+        // An edited invoice goes back in under its old id (null = next id)
+        val id = Db.insert("""INSERT INTO invoices(id,inv_no,kind,date,customer_id,vehicle_id,job_id,goods_net,services_net,discount,goods_tax,services_tax,rounding,
+            total,cost,insurer_id,insurer_share,notes,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", keepId, no, kind, date, customerId, vehicleId, jobId,
             t.goodsNet, t.servicesNet, t.discount, t.goodsTax, t.servicesTax, t.rounding, t.total, cost, insurerId, insurerShare, notes, Dates.now())
         for (l in t.lines) {
             Db.insert("""INSERT INTO invoice_lines(invoice_id,kind,part_id,description,qty,rate,discount,tax_bp,tax,net,cost,technician_id)
@@ -155,7 +156,10 @@ object Billing {
         if (j.invoiceId != null) fail("This job is already billed (${get(j.invoiceId).no}).")
         val ls = linesFromJob(jobId)
         if (ls.isEmpty()) fail("The job card has no billable lines.")
-        return post("Service", Dates.today(), j.customerId, j.vehicleId, jobId, ls, invoiceDiscount, notes, insurerId, insurerShare)
+        // Billed again after its invoice was deleted to make changes: it keeps the same number
+        val again = Edits.reusedNumber(jobId)
+        return post("Service", Dates.today(), j.customerId, j.vehicleId, jobId, ls, invoiceDiscount, notes, insurerId, insurerShare, no = again)
+            .also { Edits.clearReusedNumber(jobId) }
     }
 
     /**
@@ -219,10 +223,10 @@ object Billing {
      * Allocates to the given invoice first, then the oldest unpaid ones.
      */
     fun receive(customerId: Long, amount: Long, method: String, reference: String, date: String, invoiceId: Long? = null, wht: Long = 0,
-                chequeDate: String? = null, note: String = ""): Long = Db.tx {
+                chequeDate: String? = null, note: String = "", no: String? = null, keepId: Long? = null): Long = Db.tx {
         if (amount <= 0 && wht <= 0) fail("Enter an amount.")
         if (method == "Cheque" && reference.isBlank()) fail("Enter the cheque number and bank.")
-        val no = Numbers.next("RC", date)
+        @Suppress("NAME_SHADOWING") val no = no ?: Numbers.next("RC", date)
         val cust = Customers.get(customerId)
         val ls = arrayListOf<LedgerLine>()
         if (method == "Loyalty points") ls += LedgerLine(Accounts.sys("DISCOUNTS"), debit = amount, memo = "Points redeemed")
@@ -230,8 +234,8 @@ object Billing {
         if (wht > 0) ls += LedgerLine(Accounts.sys("WHT_REC"), debit = wht, memo = "Tax withheld by customer")
         ls += LedgerLine(Accounts.sys("AR"), credit = amount + wht, partyType = "C", partyId = customerId)
         val vid = Ledger.post("RCPT", date, "Receipt $no from ${cust.name} ($method${if (reference.isNotBlank()) " $reference" else ""})", ls, "customer", customerId)
-        val pid = Db.insert("""INSERT INTO payments(pay_no,date,direction,party_type,party_id,invoice_id,method,amount,wht,reference,cheque_date,cheque_status,note,voucher_id)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", no, date, "IN", "C", customerId, invoiceId, method, amount, wht, reference, chequeDate,
+        val pid = Db.insert("""INSERT INTO payments(id,pay_no,date,direction,party_type,party_id,invoice_id,method,amount,wht,reference,cheque_date,cheque_status,note,voucher_id)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", keepId, no, date, "IN", "C", customerId, invoiceId, method, amount, wht, reference, chequeDate,
             if (method == "Cheque") "In hand" else null, note, vid)
         var left = amount + wht
         val open = list("0000-00-00", "9999-12-31", customerId = customerId).filter { it.kind != "Credit note" && it.due > 0 }
@@ -267,7 +271,7 @@ object Billing {
             it.str("reference"), it.str("cheque_date"), it.str("cheque_status"), it.str("ref_no"), it.str("note"))
     }
 
-    fun invoicePayments(invoiceId: Long) = Db.query("""SELECT p.pay_no, p.date, p.method, a.amount, p.reference FROM payment_allocations a
+    fun invoicePayments(invoiceId: Long) = Db.query("""SELECT p.id, p.pay_no, p.date, p.method, a.amount, p.reference FROM payment_allocations a
         JOIN payments p ON p.id=a.payment_id WHERE a.invoice_id=? ORDER BY p.id""", invoiceId)
 
     // ---------- cheques ----------

@@ -41,7 +41,11 @@ private fun StaffTab() {
         C("", 1f, content = { s -> TextButton({ adv = s }) { BtnText("Give advance") } })), Modifier.fillMaxSize(), onClick = { edit = it })
     edit?.let { s0 ->
         var s by remember(s0) { mutableStateOf(s0) }
-        FormDialog(if (s0.id == 0L) "Add staff" else s0.name, { edit = null }, { if (App.act("Saved") { StaffBook.save(s) }) edit = null }) {
+        FormDialog(if (s0.id == 0L) "Add staff" else s0.name, { edit = null }, { if (App.act("Saved") { StaffBook.save(s) }) edit = null }, extraButtons = {
+            if (s0.id != 0L) DeleteButton("Delete ${s0.name}?", "Someone with salaries or advances on record is marked as left instead of erased, so the books stay correct.") {
+                App.act { App.toast(Edits.message(Edits.deleteStaff(s0.id), s0.name)) }; edit = null
+            }
+        }) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Field("Name", s.name, { s = s.copy(name = it) }, Modifier.weight(1f)); Field("Role", s.role, { s = s.copy(role = it) }, Modifier.weight(1f)) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Field("Phone", s.phone, { s = s.copy(phone = it) }, Modifier.weight(1f)); Field("CNIC", s.cnic, { s = s.copy(cnic = it) }, Modifier.weight(1f)) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { MoneyField("Monthly salary", s.salary, { s = s.copy(salary = it ?: 0) }, Modifier.weight(1f)); DateField("Joined", s.joined, { s = s.copy(joined = it) }) }
@@ -52,10 +56,18 @@ private fun StaffTab() {
     }
     adv?.let { s ->
         var amt by remember { mutableStateOf<Long?>(0) }; var method by remember { mutableStateOf("Cash") }
+        var viewV by remember { mutableStateOf<Long?>(null) }
+        val given = remember(App.version, s.id) { pk.workshop.db.Db.query("""SELECT v.id, v.v_no, v.date, (SELECT sum(debit) FROM voucher_lines WHERE voucher_id=v.id) total
+            FROM vouchers v WHERE v.ref_type='staff' AND v.ref_id=? AND v.vtype='CPV' ORDER BY v.date DESC LIMIT 12""", s.id) }
         FormDialog("Advance to ${s.name}", { adv = null }, { if (App.act("Advance recorded") { StaffBook.giveAdvance(s.id, amt ?: 0, method, Dates.today()) }) adv = null }) {
             Text("Already owes ${Money.rs(StaffBook.advanceBalance(s.id))}. Advances are deducted when salary is paid.")
             MoneyField("Amount", amt, { amt = it }); Dropdown("Paid by", Defaults.payMethods, method, { method = it })
+            if (given.isNotEmpty()) {
+                Text("Advances given (click to change or delete)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                given.forEach { r -> TextButton({ viewV = r.long("id") }) { Text("${Dates.show(r.str("date"))} · ${r.str("v_no")} · ${Money.rs(r.long("total"))}") } }
+            }
         }
+        viewV?.let { VoucherDialog(it) { viewV = null } }
     }
 }
 
@@ -68,7 +80,11 @@ private fun TechTab() {
         Modifier.fillMaxSize(), onClick = { edit = it })
     edit?.let { t0 ->
         var t by remember(t0) { mutableStateOf(t0) }; var pct by remember(t0) { mutableStateOf(Pct.fmt(t0.commissionBp).removeSuffix("%")) }
-        FormDialog(if (t0.id == 0L) "Add technician" else t0.name, { edit = null }, { if (App.act("Saved") { Technicians.save(t.copy(commissionBp = Pct.parse(pct) ?: 0)) }) edit = null }) {
+        FormDialog(if (t0.id == 0L) "Add technician" else t0.name, { edit = null }, { if (App.act("Saved") { Technicians.save(t.copy(commissionBp = Pct.parse(pct) ?: 0)) }) edit = null }, extraButtons = {
+            if (t0.id != 0L) DeleteButton("Delete ${t0.name}?", "A technician named on job cards or bills is marked inactive instead of erased.") {
+                App.act { App.toast(Edits.message(Edits.deleteTechnician(t0.id), t0.name)) }; edit = null
+            }
+        }) {
             Field("Name", t.name, { t = t.copy(name = it) }, Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Field("Phone", t.phone, { t = t.copy(phone = it) }, Modifier.weight(1f)); Dropdown("Department", Defaults.departments, t.department.ifBlank { null }, { t = t.copy(department = it) }, Modifier.weight(1f)) }
             Field("Commission % on labour", pct, { pct = it }, Modifier.width(220.dp), numeric = true)
@@ -83,11 +99,29 @@ private fun PayrollTab() {
     val staff = remember(App.version) { StaffBook.list() }
     val paid = remember(App.version, month) { StaffBook.payroll(month) }
     var pay by remember { mutableStateOf<Staff?>(null) }
+    var change by remember { mutableStateOf<pk.workshop.db.Row?>(null) }
     Toolbar { Field("Month (yyyy-mm)", month, { month = it }, Modifier.width(180.dp)); Text("Paid: ${Money.rs(paid.sumOf { it.long("net") })}", fontWeight = FontWeight.SemiBold) }
     DataTable(staff, listOf(C("Name", 1.6f) { it.name }, C("Salary", 1f, true) { plain(it.salary) }, C("Commission", 1f, true) { plain(StaffBook.commission(it.id, month)) },
         C("Advance owed", 1f, true) { plain(StaffBook.advanceBalance(it.id)) },
-        C("Status", 1.2f, content = { s -> val p = paid.firstOrNull { it.long("staff_id") == s.id }; if (p != null) Chip("Paid ${plain(p.long("net"))}", MaterialTheme.colorScheme.tertiary) else TextButton({ pay = s }) { BtnText("Pay salary") } })),
+        C("Status", 1.2f, content = { s -> val p = paid.firstOrNull { it.long("staff_id") == s.id }; if (p != null) TextButton({ change = p }) { Chip("Paid ${plain(p.long("net"))}", MaterialTheme.colorScheme.tertiary) } else TextButton({ pay = s }) { BtnText("Pay salary") } })),
         Modifier.fillMaxSize())
+    change?.let { p ->
+        var basic by remember(p) { mutableStateOf<Long?>(p.long("basic")) }; var comm by remember(p) { mutableStateOf<Long?>(p.long("commission")) }
+        var advDed by remember(p) { mutableStateOf<Long?>(p.long("advance_deducted")) }; var other by remember(p) { mutableStateOf<Long?>(p.long("other_deduction")) }
+        var method by remember(p) { mutableStateOf(p.str("method")) }
+        val vDate = remember(p) { p.longOrNull("voucher_id")?.let { Ledger.voucher(it).date } ?: Dates.today() }
+        val net = (basic ?: 0) + (comm ?: 0) - (advDed ?: 0) - (other ?: 0)
+        FormDialog("Salary ${p.str("month")} — ${p.str("name")}", { change = null }, { if (App.act("Salary changed") {
+            Edits.editPayroll(p.long("id"), basic ?: 0, comm ?: 0, advDed ?: 0, other ?: 0, method, vDate) }) change = null }, saveText = "Save changes", extraButtons = {
+            DeleteButton("Delete this salary payment?", "The salary entry is removed from the books and the month shows as unpaid. Any advance deducted is owed again.") {
+                if (App.act("Salary payment deleted") { Edits.deletePayroll(p.long("id")) }) change = null
+            }
+        }) {
+            MoneyField("Basic salary", basic, { basic = it }); MoneyField("Commission", comm, { comm = it })
+            MoneyField("Advance deducted", advDed, { advDed = it }); MoneyField("Other deduction (absence, fine)", other, { other = it })
+            Dropdown("Paid by", Defaults.payMethods, method, { method = it }); Text("Net pay: ${Money.rs(net)}", fontWeight = FontWeight.SemiBold)
+        }
+    }
     pay?.let { s ->
         var basic by remember { mutableStateOf<Long?>(s.salary) }; var comm by remember { mutableStateOf<Long?>(StaffBook.commission(s.id, month)) }
         var advDed by remember { mutableStateOf<Long?>(minOf(StaffBook.advanceBalance(s.id), s.salary)) }; var other by remember { mutableStateOf<Long?>(0) }; var method by remember { mutableStateOf("Cash") }
@@ -112,8 +146,18 @@ private fun AttendanceTab() {
         OutlinedButton({ FilePick.open("Attendance log from the fingerprint machine", listOf(".csv", ".txt", ".dat"))?.let { f -> App.act { App.toast("Imported ${StaffBook.importAttendance(f)} punches") } } }) { IconText(Icons.Default.Fingerprint, "Import machine log") }
         Button({ mark = true }) { Text("Mark by hand") }
     }
+    var fix by remember { mutableStateOf<pk.workshop.db.Row?>(null) }
     DataTable(rows, listOf(C("Date", 1f) { Dates.show(it.str("date")) }, C("Name", 2f) { it.str("name") }, C("In", 1f) { it.str("time_in") }, C("Out", 1f) { it.str("time_out") }),
-        Modifier.fillMaxSize(), empty = "No attendance this month. Import the machine's log (each line: user ID and date-time) or mark by hand.")
+        Modifier.fillMaxSize(), onClick = { fix = it }, empty = "No attendance this month. Import the machine's log (each line: user ID and date-time) or mark by hand.")
+    fix?.let { r ->
+        var d by remember(r) { mutableStateOf(r.str("date")) }; var tin by remember(r) { mutableStateOf(r.str("time_in")) }; var tout by remember(r) { mutableStateOf(r.str("time_out")) }
+        FormDialog("Attendance — ${r.str("name")}", { fix = null }, { if (App.act("Saved") { Edits.editAttendance(r.long("id"), d, tin, tout) }) fix = null }, extraButtons = {
+            DeleteButton("Delete this attendance entry?", "The entry for ${Dates.show(r.str("date"))} is removed.") { if (App.act("Deleted") { Edits.deleteAttendance(r.long("id")) }) fix = null }
+        }) {
+            DateField("Date", d, { d = it })
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Field("In", tin, { tin = it }, Modifier.weight(1f)); Field("Out", tout, { tout = it }, Modifier.weight(1f)) }
+        }
+    }
     if (mark) {
         var s by remember { mutableStateOf(staff.firstOrNull()) }; var d by remember { mutableStateOf(Dates.today()) }; var tin by remember { mutableStateOf("09:00") }; var tout by remember { mutableStateOf("18:00") }
         FormDialog("Mark attendance", { mark = false }, { if (App.act("Saved") { StaffBook.markAttendance(s?.id ?: return@act, d, tin, tout) }) mark = false }) {

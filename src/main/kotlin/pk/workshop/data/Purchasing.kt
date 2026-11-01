@@ -53,14 +53,14 @@ object Purchasing {
      * Dr Stock / Cr Supplier. Optionally records an immediate payment.
      */
     fun postBill(supplierId: Long, billNo: String, date: String, lines: List<DocLine>, landed: Long, notes: String,
-                 payNow: Long = 0, payMethod: String = "Cash"): Long = Db.tx {
+                 payNow: Long = 0, payMethod: String = "Cash", no: String? = null, keepId: Long? = null): Long = Db.tx {
         if (lines.isEmpty()) fail("Add at least one part.")
         if (lines.any { it.qty <= 0 || it.cost < 0 }) fail("Quantities must be above zero and costs not negative.")
         val goods = lines.sumOf { Money.times(it.cost, it.qty) }
         val total = goods + landed
-        val docNo = Numbers.next("PB", date)
-        val id = Db.insert("INSERT INTO purchases(doc_no,kind,supplier_id,bill_no,date,landed,total,notes) VALUES(?,?,?,?,?,?,?,?)",
-            docNo, "Bill", supplierId, billNo, date, landed, total, notes)
+        val docNo = no ?: Numbers.next("PB", date)
+        val id = Db.insert("INSERT INTO purchases(id,doc_no,kind,supplier_id,bill_no,date,landed,total,notes) VALUES(?,?,?,?,?,?,?,?,?)",
+            keepId, docNo, "Bill", supplierId, billNo, date, landed, total, notes)
         var landedLeft = landed
         lines.forEachIndexed { i, l ->
             val value = Money.times(l.cost, l.qty)
@@ -82,13 +82,13 @@ object Purchasing {
     }
 
     /** Returns parts to a supplier: stock out, Dr Supplier / Cr Stock. */
-    fun postReturn(supplierId: Long, date: String, lines: List<DocLine>, notes: String): Long = Db.tx {
+    fun postReturn(supplierId: Long, date: String, lines: List<DocLine>, notes: String, no: String? = null, keepId: Long? = null): Long = Db.tx {
         if (lines.isEmpty()) fail("Add at least one part.")
         for (l in lines) { val p = Inventory.get(l.partId); if (p.qty < l.qty) fail("Only ${pk.workshop.core.Qty.fmt(p.qty)} of ${p.name} in stock.") }
         val total = lines.sumOf { Money.times(it.cost, it.qty) }
-        val docNo = Numbers.next("PR", date)
-        val id = Db.insert("INSERT INTO purchases(doc_no,kind,supplier_id,bill_no,date,landed,total,notes) VALUES(?,?,?,?,?,?,?,?)",
-            docNo, "Return", supplierId, "", date, 0, -total, notes)
+        val docNo = no ?: Numbers.next("PR", date)
+        val id = Db.insert("INSERT INTO purchases(id,doc_no,kind,supplier_id,bill_no,date,landed,total,notes) VALUES(?,?,?,?,?,?,?,?,?)",
+            keepId, docNo, "Return", supplierId, "", date, 0, -total, notes)
         lines.forEach {
             Db.insert("INSERT INTO purchase_lines(purchase_id,part_id,qty,cost) VALUES(?,?,?,?)", id, it.partId, -it.qty, it.cost)
             Inventory.removeAtCost(it.partId, date, "RETURN_OUT", it.qty, it.cost, "PR", id, docNo)
@@ -99,14 +99,14 @@ object Purchasing {
         id
     }
 
-    fun paySupplier(supplierId: Long, amount: Long, method: String, reference: String, date: String, purchaseId: Long? = null, note: String = ""): Long = Db.tx {
+    fun paySupplier(supplierId: Long, amount: Long, method: String, reference: String, date: String, purchaseId: Long? = null, note: String = "", no: String? = null, keepId: Long? = null): Long = Db.tx {
         if (amount <= 0) fail("Enter an amount.")
-        val no = Numbers.next("SP", date)
+        @Suppress("NAME_SHADOWING") val no = no ?: Numbers.next("SP", date)
         val vid = Ledger.post("PAY", date, "Payment $no to ${Suppliers.get(supplierId).name} ($method${if (reference.isNotBlank()) " $reference" else ""})",
             listOf(LedgerLine(Accounts.sys("AP"), debit = amount, partyType = "S", partyId = supplierId), LedgerLine(Accounts.forMethod(method), credit = amount)),
             "supplier_payment", null)
-        val pid = Db.insert("""INSERT INTO payments(pay_no,date,direction,party_type,party_id,purchase_id,method,amount,reference,note,voucher_id)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)""", no, date, "OUT", "S", supplierId, purchaseId, method, amount, reference, note, vid)
+        val pid = Db.insert("""INSERT INTO payments(id,pay_no,date,direction,party_type,party_id,purchase_id,method,amount,reference,note,voucher_id)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", keepId, no, date, "OUT", "S", supplierId, purchaseId, method, amount, reference, note, vid)
         allocateToBills(pid, supplierId, amount, purchaseId)
         pid
     }

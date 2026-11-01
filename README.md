@@ -122,7 +122,10 @@ A USB barcode scanner works in any field marked with the scan icon. Scan a part 
 
 - **Password:** a single admin password. It never leaves the PC.
 - **Encryption:** the whole database is encrypted with ChaCha20 (SQLite3MultipleCiphers). The encryption key is itself wrapped with AES-256-GCM under the password and under the recovery code (PBKDF2, 310,000 rounds).
-- **Mistakes in the books:** posted entries are never edited. They are reversed, and every action is written to the audit log.
+- **Fixing mistakes:** every entry can be edited or deleted, unless its month is locked.
+  - Bills, payments, purchases, vouchers, salaries and stock adjustments keep their number when edited. Their ledger and stock entries are redone automatically.
+  - Customers, parts, suppliers and staff with history are archived (hidden) instead of erased, so old bills stay correct.
+  - Every change and deletion is written to the change log (Reports › Change log).
 
 ## Developing
 
