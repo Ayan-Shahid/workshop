@@ -44,6 +44,7 @@ object Db {
         c.createStatement().use { it.executeQuery("SELECT count(*) FROM sqlite_master").close() }
         conn = c
         try { Schema.migrate() } catch (e: Throwable) { close(); throw e }
+        try { pk.workshop.data.Accounts.repairTree() } catch (e: Exception) { e.printStackTrace() }
     }
 
     fun close() {

@@ -393,7 +393,7 @@ private fun ChartTab() {
         Button({ edit = Account(0, "", "", "EXPENSE", all.firstOrNull { it.code == "5000" }?.id, null, false, true) }) { IconText(Icons.Default.Add, "New account") } }
     val balances = remember(App.version) { Ledger.trialBalance(Dates.today()).associate { it.account.id to (it.debit - it.credit) } }
     DataTable(all, listOf(C("Code", 0.6f) { it.code }, C("Account", 3f, content = { a ->
-        val depth = generateSequence(a.parentId) { pid -> all.firstOrNull { it.id == pid }?.parentId }.count()
+        val depth = Accounts.ancestors(a, all).size
         Text("    ".repeat(depth) + a.name, fontWeight = if (a.isGroup) FontWeight.SemiBold else FontWeight.Normal) }),
         C("Type", 1f) { it.type.lowercase() }, C("Built-in", 0.6f) { if (it.sys != null) "yes" else "" },
         C("Balance (Dr+/Cr−)", 1.2f, true) { balances[it.id]?.let { b -> plain(b) } ?: "" }, C("", 0.6f) { if (!it.active) "inactive" else "" }),
@@ -410,8 +410,9 @@ private fun ChartTab() {
             } }) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Field("Code", code, { code = it }, Modifier.weight(0.5f)); Field("Name", name, { name = it }, Modifier.weight(1.5f)) }
             Dropdown("Type", listOf("ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPENSE"), type, { type = it }, text = { it.lowercase().replaceFirstChar { c -> c.uppercase() } })
-            Dropdown("Under group", all.filter { it.isGroup }, parent, { parent = it; type = it.type }, text = { it.label })
-            Check("This is a group (holds other accounts, no postings)", group) { group = it }
+            // Only groups, and never this account itself or a group inside it
+            Dropdown("Under group", all.filter { g -> g.isGroup && g.id != a0.id && Accounts.ancestors(g, all).none { it.id == a0.id } }, parent, { parent = it; type = it.type }, text = { it.label })
+            if (a0.sys == null) Check("This is a group (holds other accounts, no postings)", group) { group = it }
         }
     }
 }

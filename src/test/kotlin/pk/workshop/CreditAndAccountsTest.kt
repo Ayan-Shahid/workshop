@@ -46,3 +46,30 @@ class CreditAndAccountsTest {
         Db.close()
     }
 }
+
+class ChartLoopTest {
+    @Test fun loopsAreRefusedAndRepaired() {
+        val dir = kotlin.io.path.createTempDirectory("wschart").toFile()
+        System.setProperty("workshop.dataDir", dir.path)
+        pk.workshop.security.Vault.setup("admin", "secret123")
+        val cashGroup = Db.scalarStr("SELECT id FROM accounts WHERE code='1100'")!!.toLong()
+        val assets = Db.scalarStr("SELECT id FROM accounts WHERE code='1000'")!!.toLong()
+        val cash = Accounts.sys("CASH")
+        // A new group under Cash and bank; Cash and bank can't then go under it
+        val g = Accounts.save(null, "0001", "Cash in hand", "ASSET", cashGroup, true)
+        assertFailsWith<pk.workshop.db.AppError> { Accounts.save(cashGroup, "1100", "Cash and bank", "ASSET", g, true) }
+        assertFailsWith<pk.workshop.db.AppError> { Accounts.save(cash, "1110", "Cash in hand", "ASSET", cash, false) }
+        assertFailsWith<pk.workshop.db.AppError> { Accounts.save(cash, "1110", "Cash in hand", "ASSET", cashGroup, true) }
+        // Moving the cash account into the new group is fine and it still counts as cash and bank
+        Accounts.save(cash, "1110", "Cash in hand", "ASSET", g, false)
+        assertTrue(Accounts.cashAndBank().any { it.id == cash })
+        // A loop made by an older version is repaired when the records are opened
+        Db.exec("UPDATE accounts SET parent_id=? WHERE id=?", g, cashGroup)
+        Accounts.repairTree()
+        val all = Accounts.all()
+        for (a in all) assertTrue(Accounts.ancestors(a, all).size < all.size)
+        assertTrue(Accounts.get(cashGroup).parentId == assets || Accounts.get(g).parentId == assets, "the loop is broken at the top of Assets")
+        Ledger.balance(cashGroup)   // balances still work (no endless walk)
+        Db.close()
+    }
+}

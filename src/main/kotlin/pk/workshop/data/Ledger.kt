@@ -28,10 +28,34 @@ object Accounts {
     fun sys(key: String): Long = Db.scalarStr("SELECT id FROM accounts WHERE sys=?", key)?.toLong() ?: fail("System account $key is missing")
     fun byType(type: String) = postable().filter { it.type == type }
 
+    /** The groups above an account, nearest first. Stops at a loop instead of going round forever. */
+    fun ancestors(a: Account, all: List<Account> = all()): List<Account> {
+        val out = ArrayList<Account>(); val seen = hashSetOf(a.id); var p = a.parentId
+        while (p != null && seen.add(p)) { val g = all.firstOrNull { it.id == p } ?: break; out += g; p = g.parentId }
+        return out
+    }
+
     fun save(id: Long?, code: String, name: String, type: String, parentId: Long?, isGroup: Boolean): Long {
         if (code.isBlank() || name.isBlank()) fail("Enter a code and a name.")
         val dup = Db.scalarLong("SELECT count(*) FROM accounts WHERE code=? AND id<>?", code.trim(), id ?: -1)
         if (dup > 0) fail("Account code $code is already used.")
+        if (parentId != null) {
+            val all = all()
+            val parent = all.firstOrNull { it.id == parentId } ?: fail("Choose the group it goes under.")
+            if (!parent.isGroup) fail("${parent.name} is an account, not a group. Choose a group to put it under.")
+            if (parent.type != type) fail("${parent.name} holds ${parent.type.lowercase()} accounts; the type must match.")
+            // An account can't go under itself or under one of its own sub-groups (that would make a loop)
+            if (id != null && (parentId == id || ancestors(parent, all).any { it.id == id }))
+                fail("$name can't go under ${parent.name}, because ${parent.name} is inside $name. Choose a group above it.")
+        }
+        if (id != null) {
+            val a = get(id)
+            if (isGroup && a.sys != null) fail("${a.name} is built in and receives postings, so it can't become a group. Make a new group and put accounts under it instead.")
+            if (isGroup && !a.isGroup && Db.scalarLong("SELECT count(*) FROM voucher_lines WHERE account_id=?", id) > 0)
+                fail("${a.name} has entries, so it can't become a group.")
+            if (!isGroup && a.isGroup && Db.scalarLong("SELECT count(*) FROM accounts WHERE parent_id=?", id) > 0)
+                fail("${a.name} has accounts under it. Move them out first.")
+        }
         return if (id == null) {
             Db.insert("INSERT INTO accounts(code,name,atype,parent_id,is_group) VALUES(?,?,?,?,?)", code.trim(), name.trim(), type, parentId, isGroup)
                 .also { Audit.log("create", "account", it, "$code $name") }
@@ -40,6 +64,38 @@ object Accounts {
             if (a.sys != null && a.type != type) fail("The type of a built-in account cannot change.")
             Db.exec("UPDATE accounts SET code=?, name=?, atype=?, parent_id=?, is_group=? WHERE id=?", code.trim(), name.trim(), type, parentId, isGroup, id)
             Audit.log("update", "account", id, "$code $name"); id
+        }
+    }
+
+    /**
+     * Fixes a chart left inconsistent by older versions, which allowed it: accounts in a loop (A under B under A) go back
+     * under their type's top group, and a built-in account that was turned into a group becomes an account again
+     * (anything placed under it moves up beside it). Runs each time the records are opened.
+     */
+    fun repairTree() {
+        val roots = mapOf("ASSET" to "1000", "LIABILITY" to "2000", "EQUITY" to "3000", "INCOME" to "4000", "EXPENSE" to "5000")
+        fun root(type: String) = Db.scalarStr("SELECT id FROM accounts WHERE code=?", roots[type] ?: "1000")?.toLong()
+        for (a in all()) {
+            if (a.sys != null && a.isGroup) {
+                Db.exec("UPDATE accounts SET parent_id=? WHERE parent_id=?", a.parentId, a.id)
+                Db.exec("UPDATE accounts SET is_group=0 WHERE id=?", a.id)
+                Audit.log("repair", "account", a.id, "${a.label} made an account again")
+            }
+        }
+        var changed = true
+        while (changed) {
+            changed = false
+            val all = all()
+            for (a in all) {
+                val seen = hashSetOf(a.id); var p = a.parentId; var loop = false
+                while (p != null) { if (!seen.add(p)) { loop = true; break }; p = all.firstOrNull { it.id == p }?.parentId }
+                if (loop) {
+                    val r = root(a.type).takeIf { it != a.id }
+                    Db.exec("UPDATE accounts SET parent_id=? WHERE id=?", r, a.id)
+                    Audit.log("repair", "account", a.id, "${a.label} was inside its own group; moved under ${roots[a.type]}")
+                    changed = true; break
+                }
+            }
         }
     }
 
@@ -72,7 +128,7 @@ object Accounts {
     fun cashAndBank(): List<Account> {
         val all = all()
         val root = all.firstOrNull { it.code == "1100" }?.id
-        fun under(a: Account): Boolean { var p = a.parentId; while (p != null) { if (p == root) return true; p = all.firstOrNull { it.id == p }?.parentId }; return false }
+        fun under(a: Account): Boolean = ancestors(a, all).any { it.id == root }
         return all.filter { !it.isGroup && it.active && (under(it) || it.sys in setOf("CASH", "BANK", "WALLET", "CHEQUES")) }
     }
 }
@@ -152,8 +208,8 @@ object Ledger {
         val out = arrayListOf(accountId)
         var frontier = listOf(accountId)
         while (frontier.isNotEmpty()) {
-            val next = frontier.flatMap { p -> Db.query("SELECT id FROM accounts WHERE parent_id=?", p).map { it.long("id") } }
-            out.addAll(next); frontier = next
+            val next = frontier.flatMap { p -> Db.query("SELECT id FROM accounts WHERE parent_id=?", p).map { it.long("id") } }.filter { it !in out }.distinct()
+            out.addAll(next); frontier = next   // (never revisits, so a loop in the chart can't hang it)
         }
         return out
     }
