@@ -142,6 +142,8 @@ object Billing {
         if (per100 > 0 && cust.type != "Walk-in") Customers.addPoints(customerId, (t.total - insurerShare) / 10000 * per100, id, "Earned on $no")
         if (jobId != null) Db.exec("UPDATE job_cards SET invoice_id=?, status=CASE WHEN status='Delivered' THEN status ELSE 'Ready' END WHERE id=?", id, jobId)
         Fbr.queue(id)
+        // Credit the customer (or insurer) already has with us goes against the new bill. An edit re-applies its own payments first.
+        if (keepId == null && kind != "Credit note") { Edits.applyCustomerCredit(customerId); insurerId?.let { Edits.applyCustomerCredit(it) } }
         Audit.log("create", "invoice", id, "$no ${Money.rs(t.total)}")
         id
     }
@@ -223,14 +225,14 @@ object Billing {
      * Allocates to the given invoice first, then the oldest unpaid ones.
      */
     fun receive(customerId: Long, amount: Long, method: String, reference: String, date: String, invoiceId: Long? = null, wht: Long = 0,
-                chequeDate: String? = null, note: String = "", no: String? = null, keepId: Long? = null): Long = Db.tx {
+                chequeDate: String? = null, note: String = "", no: String? = null, keepId: Long? = null, accountId: Long? = null): Long = Db.tx {
         if (amount <= 0 && wht <= 0) fail("Enter an amount.")
         if (method == "Cheque" && reference.isBlank()) fail("Enter the cheque number and bank.")
         @Suppress("NAME_SHADOWING") val no = no ?: Numbers.next("RC", date)
         val cust = Customers.get(customerId)
         val ls = arrayListOf<LedgerLine>()
         if (method == "Loyalty points") ls += LedgerLine(Accounts.sys("DISCOUNTS"), debit = amount, memo = "Points redeemed")
-        else if (amount > 0) ls += LedgerLine(Accounts.forMethod(method), debit = amount)
+        else if (amount > 0) ls += LedgerLine(Accounts.forPayment(method, accountId), debit = amount)
         if (wht > 0) ls += LedgerLine(Accounts.sys("WHT_REC"), debit = wht, memo = "Tax withheld by customer")
         ls += LedgerLine(Accounts.sys("AR"), credit = amount + wht, partyType = "C", partyId = customerId)
         val vid = Ledger.post("RCPT", date, "Receipt $no from ${cust.name} ($method${if (reference.isNotBlank()) " $reference" else ""})", ls, "customer", customerId)
@@ -279,11 +281,11 @@ object Billing {
     fun cheques(status: String? = "In hand") = Db.query("""SELECT p.*, (SELECT name FROM customers WHERE id=p.party_id) party FROM payments p
         WHERE method='Cheque' AND direction='IN' AND (? IS NULL OR cheque_status=?) ORDER BY cheque_date""", status, status)
 
-    fun chequeCleared(paymentId: Long, date: String = Dates.today()) = Db.tx {
+    fun chequeCleared(paymentId: Long, date: String = Dates.today(), bankId: Long? = null) = Db.tx {
         val p = Db.one("SELECT * FROM payments WHERE id=?", paymentId) ?: fail("Cheque not found")
         if (p.str("cheque_status") != "In hand") fail("This cheque is already ${p.str("cheque_status").lowercase()}.")
         Ledger.post("JV", date, "Cheque ${p.str("reference")} deposited and cleared",
-            listOf(LedgerLine(Accounts.sys("BANK"), debit = p.long("amount")), LedgerLine(Accounts.sys("CHEQUES"), credit = p.long("amount"))), "payment", paymentId)
+            listOf(LedgerLine(Accounts.forPayment("Bank transfer", bankId), debit = p.long("amount")), LedgerLine(Accounts.sys("CHEQUES"), credit = p.long("amount"))), "payment", paymentId)
         Db.exec("UPDATE payments SET cheque_status='Cleared' WHERE id=?", paymentId)
     }
 

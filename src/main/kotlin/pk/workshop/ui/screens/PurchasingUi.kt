@@ -58,9 +58,11 @@ private fun SuppliersTab() {
     pay?.let { s ->
         var amt by remember { mutableStateOf<Long?>(maxOf(balances[s.id] ?: 0, 0)) }; var method by remember { mutableStateOf("Cash") }; var ref by remember { mutableStateOf("") }
         var date by remember { mutableStateOf(Dates.today()) }
-        FormDialog("Pay ${s.name}", { pay = null }, { if (App.act("Payment recorded") { Purchasing.paySupplier(s.id, amt ?: 0, method, ref, date) }) pay = null }, saveText = "Pay") {
+        var acct by remember { mutableStateOf<Long?>(null) }
+        FormDialog("Pay ${s.name}", { pay = null }, { if (App.act("Payment recorded") { Purchasing.paySupplier(s.id, amt ?: 0, method, ref, date, accountId = acct) }) pay = null }, saveText = "Pay") {
             Text("We owe ${Money.rs(balances[s.id] ?: 0)}")
             Dropdown("Method", Defaults.payMethods, method, { method = it })
+            PayAccountPicker(method, acct, { acct = it })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { MoneyField("Amount", amt, { amt = it }, Modifier.weight(1f)); DateField("Date", date, { date = it }) }
             Field("Reference", ref, { ref = it }, Modifier.fillMaxWidth())
         }

@@ -173,6 +173,8 @@ fun CounterSaleScreen(customerId: Long?, editId: Long? = null) {
     var addService by remember { mutableStateOf(false) }
     var payFor by remember { mutableStateOf<Long?>(null) }
     var lastInv by remember { mutableStateOf<Long?>(null) }
+    // A bill taken back from the payment screen keeps its number for when it's saved again
+    var reuseNo by remember { mutableStateOf<String?>(null) }
     val totals = remember(cart.toList(), discount) {
         try { Billing.compute(cart.map { InvLine(it.kind, it.partId, it.description, it.qty, it.rate, it.discount) }, discount ?: 0, Dates.today()) } catch (e: Exception) { null }
     }
@@ -185,7 +187,8 @@ fun CounterSaleScreen(customerId: Long?, editId: Long? = null) {
         App.act("Sale saved") {
             if (cart.isEmpty()) fail("Add something to sell.")
             val cid = customer?.id ?: Customers.walkIn()
-            id = Billing.post("Counter", Dates.today(), cid, null, null, cart.map { InvLine(it.kind, it.partId, it.description, it.qty, it.rate, it.discount) }, discount ?: 0, "")
+            id = Billing.post("Counter", Dates.today(), cid, null, null, cart.map { InvLine(it.kind, it.partId, it.description, it.qty, it.rate, it.discount) }, discount ?: 0, "", no = reuseNo)
+            reuseNo = null
         }
         return id
     }
@@ -216,7 +219,11 @@ fun CounterSaleScreen(customerId: Long?, editId: Long? = null) {
                     Text(customer?.name ?: "Walk-in customer", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                     TextButton({ pickCust = true }) { BtnText("Customer") }
                 }
-                customer?.let { c -> Text("Owes ${Money.rs(Customers.balance(c.id))} · ${c.points} points", style = MaterialTheme.typography.bodySmall) }
+                customer?.let { c ->
+                    val bal = remember(App.version, c.id) { Customers.balance(c.id) }
+                    val pts = remember(App.version, c.id) { Customers.get(c.id).points }
+                    Text((if (bal >= 0) "Owes ${Money.rs(bal)}" else "Credit with us ${Money.rs(-bal)}") + " · $pts points", style = MaterialTheme.typography.bodySmall)
+                }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                 MoneyField("Discount on whole bill", discount, { discount = it }, Modifier.fillMaxWidth())
                 if (totals != null) {
@@ -257,11 +264,15 @@ fun CounterSaleScreen(customerId: Long?, editId: Long? = null) {
         }
     }
     payFor?.let { id ->
-        val inv = Billing.get(id)
-        SplitPaymentDialog(inv) {
+        val inv = remember(id) { Billing.get(id) }
+        SplitPaymentDialog(inv, onDone = {
             payFor = null; cart.clear(); discount = 0
             App.act { Printers.receipt(id) }
-        }
+        }, onBackToBill = {
+            // Nothing paid yet: take the saved bill back off the books so the cart can still be changed
+            val no = inv.no
+            if (App.act { Edits.deleteInvoice(id) }) { payFor = null; lastInv = null; reuseNo = no }
+        })
     }
     if (showDisplay) CustomerDisplay(cart.map { it.description to Money.times(it.rate, it.qty) - it.discount }, totals?.total ?: 0)
 }
@@ -274,21 +285,29 @@ private fun CartNumber(value: String, onChange: (String) -> Unit) {
 
 /** Takes one or more payments against a just-made invoice (cash + JazzCash, etc.). */
 @Composable
-fun SplitPaymentDialog(inv0: Invoice, onDone: () -> Unit) {
+fun SplitPaymentDialog(inv0: Invoice, onDone: () -> Unit, onBackToBill: (() -> Unit)? = null) {
+    // What's due now (credit the customer already had with us may have paid part of it)
+    val owed = inv0.due
     var paidSoFar by remember { mutableStateOf(0L) }
     var method by remember { mutableStateOf("Cash") }
-    var amount by remember { mutableStateOf<Long?>(inv0.total) }
+    var amount by remember { mutableStateOf<Long?>(owed) }
     var ref by remember { mutableStateOf("") }
     var tendered by remember { mutableStateOf<Long?>(null) }
-    val remaining = inv0.total - paidSoFar
-    FormDialog("Payment for ${inv0.no} — ${Money.rs(inv0.total)}", onDone, {
-        if (App.act { Billing.receive(inv0.customerId!!, amount ?: fail("Enter a valid amount."), method, ref, Dates.today(), inv0.id) }) {
+    var acct by remember { mutableStateOf<Long?>(null) }
+    val remaining = owed - paidSoFar
+    // Closing before anything is paid goes back to the bill (so it can still be changed) instead of leaving it unpaid
+    FormDialog("Payment for ${inv0.no} — ${Money.rs(inv0.total)}", if (paidSoFar == 0L && onBackToBill != null) onBackToBill else onDone, {
+        if (App.act { Billing.receive(inv0.customerId!!, amount ?: fail("Enter a valid amount."), method, ref, Dates.today(), inv0.id, accountId = acct) }) {
             paidSoFar += amount ?: 0
-            if (inv0.total - paidSoFar <= 0) onDone() else { amount = inv0.total - paidSoFar; ref = ""; method = "Cash" }
+            if (owed - paidSoFar <= 0) onDone() else { amount = owed - paidSoFar; ref = ""; method = "Cash" }
         }
-    }, saveText = "Receive", extraButtons = { if (paidSoFar > 0) TextButton(onDone) { Text("Leave the rest on account") } }) {
+    }, saveText = "Receive", extraButtons = {
+        if (paidSoFar > 0) TextButton(onDone) { Text("Leave the rest on account") }
+    }) {
+        if (owed < inv0.total) Text("${Money.rs(inv0.total - owed)} was covered by credit the customer had with us.", style = MaterialTheme.typography.bodySmall)
         Text("Remaining: ${Money.rs(remaining)}", fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) { Defaults.payMethods.forEach { m -> FilterChip(method == m, { method = m }, { Text(m) }) } }
+        PayAccountPicker(method, acct, { acct = it })
         MoneyField("Amount", amount, { amount = it })
         if (method == "Cash") {
             MoneyField("Cash handed over", tendered, { tendered = it })

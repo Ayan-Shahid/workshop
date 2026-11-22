@@ -156,11 +156,14 @@ fun ReceivePaymentDialog(customerId: Long, invoiceId: Long?, suggested: Long, on
     var chq by remember { mutableStateOf(Dates.today()) }
     var date by remember { mutableStateOf(Dates.today()) }
     var tendered by remember { mutableStateOf<Long?>(null) }
+    var acct by remember { mutableStateOf<Long?>(null) }
     FormDialog("Receive payment — ${cust.name}", onDismiss, {
-        if (App.act("Payment received") { Billing.receive(customerId, amount ?: fail("Enter a valid amount."), method, ref, date, invoiceId, wht ?: 0, if (method == "Cheque") chq else null) }) { onDone(); onDismiss() }
+        if (App.act("Payment received") { Billing.receive(customerId, amount ?: fail("Enter a valid amount."), method, ref, date, invoiceId, wht ?: 0, if (method == "Cheque") chq else null, accountId = acct) }) { onDone(); onDismiss() }
     }, saveText = "Receive") {
-        Text("Balance owed now: ${Money.rs(Customers.balance(customerId))}" + if (method == "Loyalty points") " · points: ${cust.points}" else "")
+        val bal = Customers.balance(customerId)
+        Text((if (bal >= 0) "Balance owed now: ${Money.rs(bal)}" else "Credit with us: ${Money.rs(-bal)}") + if (method == "Loyalty points") " · points: ${cust.points}" else "")
         Dropdown("Method", Defaults.payMethods + "Loyalty points", method, { method = it })
+        PayAccountPicker(method, acct, { acct = it })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MoneyField("Amount", amount, { amount = it }, Modifier.weight(1f))
             DateField("Date", date, { date = it })
@@ -292,8 +295,11 @@ fun PaymentDialog(paymentId: Long, onDismiss: () -> Unit) {
     var date by remember { mutableStateOf(p.str("date")) }
     var chq by remember { mutableStateOf(p.str("cheque_date").ifBlank { p.str("date") }) }
     var note by remember { mutableStateOf(p.str("note")) }
+    // The account the money went into (or came out of), from the payment's ledger entry
+    var acct by remember { mutableStateOf(p.longOrNull("voucher_id")?.let { vid ->
+        val cb = Accounts.cashAndBank().map { it.id }.toSet(); Ledger.lines(vid).firstOrNull { it.accountId in cb }?.accountId }) }
     FormDialog("${p.str("pay_no")} · ${if (incoming) "from" else "to"} $party", onDismiss, if (locked || chequeDone) null else ({
-        if (App.act("Payment changed") { Edits.editPayment(paymentId, Edits.PaymentEdit(amount ?: fail("Enter a valid amount."), method, ref, date, note, wht ?: 0, if (method == "Cheque") chq else null)) }) onDismiss()
+        if (App.act("Payment changed") { Edits.editPayment(paymentId, Edits.PaymentEdit(amount ?: fail("Enter a valid amount."), method, ref, date, note, wht ?: 0, if (method == "Cheque") chq else null, acct)) }) onDismiss()
     }), saveText = "Save changes", extraButtons = {
         if (!locked) DeleteButton("Delete ${p.str("pay_no")}?", (if (incoming) "$party will owe this amount again." else "You will owe $party this amount again.") +
             " The ledger entry" + (if (p.str("method") == "Cheque") " and cheque entries are" else " is") + " removed.") {
@@ -305,6 +311,7 @@ fun PaymentDialog(paymentId: Long, onDismiss: () -> Unit) {
             chequeDone -> Text("This cheque is ${p.str("cheque_status").lowercase()}. To change it, first put it back in hand (Billing › Cheques › Undo), or delete it.")
         }
         Dropdown("Method", Defaults.payMethods + if (incoming) listOf("Loyalty points") else emptyList(), method, { method = it })
+        PayAccountPicker(method, acct, { acct = it })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { MoneyField("Amount", amount, { amount = it }, Modifier.weight(1f)); DateField("Date", date, { date = it }) }
         if (method != "Cash" && method != "Loyalty points") Field(if (method == "Cheque") "Cheque no and bank" else "Transaction ID / reference", ref, { ref = it }, Modifier.fillMaxWidth())
         if (method == "Cheque" && incoming) DateField("Cheque date", chq, { chq = it })
@@ -312,4 +319,26 @@ fun PaymentDialog(paymentId: Long, onDismiss: () -> Unit) {
             MoneyField("Income tax withheld by the company", wht, { wht = it }, Modifier.fillMaxWidth())
         Field("Note", note, { note = it }, Modifier.fillMaxWidth())
     }
+}
+
+/**
+ * Which cash, bank or wallet account the money goes into or comes out of. Lists every account under "Cash and bank"
+ * (so a second bank account added in the chart of accounts shows up here). Hidden when there's only one to choose.
+ */
+@Composable
+fun PayAccountPicker(method: String, accountId: Long?, onChange: (Long) -> Unit, modifier: Modifier = Modifier.fillMaxWidth()) {
+    if (method == "Loyalty points" || method == "Credit note") return
+    val all = remember(App.version) { Accounts.cashAndBank() }
+    fun cashy(a: Account) = a.sys == "CASH" || (a.name.contains("cash", true) && !a.name.contains("jazzcash", true))
+    val choices = all.filter { a -> when (method) {
+        "Cheque" -> a.sys == "CHEQUES" || a.name.contains("cheque", true)
+        "Cash" -> cashy(a) && a.sys != "CHEQUES"
+        else -> !cashy(a) && a.sys != "CHEQUES" && !a.name.contains("cheque", true)   // banks and wallets
+    } }
+    // A new method starts on its usual account (the last one used for it)
+    var shownFor by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(method) { if (shownFor != null || accountId == null) onChange(Accounts.forMethod(method)); shownFor = method }
+    if (choices.size <= 1) return
+    val current = choices.firstOrNull { it.id == accountId } ?: choices.firstOrNull { it.id == Accounts.forMethod(method) } ?: choices.first()
+    Dropdown(if (method == "Cash") "Cash account" else "Account", choices, current, { onChange(it.id) }, modifier, text = { it.name })
 }

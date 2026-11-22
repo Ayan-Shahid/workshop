@@ -49,17 +49,31 @@ object Accounts {
         Db.exec("UPDATE accounts SET active=? WHERE id=?", active, id)
     }
 
-    /** Cash-like accounts a payment can be made from or into. */
-    fun forMethod(method: String): Long = when (method) {
-        "Cash" -> sys("CASH")
-        "JazzCash", "Easypaisa" -> sys("WALLET")
-        "Cheque" -> sys("CHEQUES")
-        else -> sys("BANK")
+    /** The account a payment method uses unless another is chosen: the last one picked for that method, else the built-in one. */
+    fun forMethod(method: String): Long {
+        Settings.get("pay.account.$method").toLongOrNull()?.let { id -> if (cashAndBank().any { it.id == id }) return id }
+        return when (method) {
+            "Cash" -> sys("CASH")
+            "JazzCash", "Easypaisa" -> sys("WALLET")
+            "Cheque" -> sys("CHEQUES")
+            else -> sys("BANK")
+        }
     }
 
+    /** The cash, bank or wallet account for a payment: the one chosen (remembered for next time), or the method's usual one. */
+    fun forPayment(method: String, accountId: Long?): Long {
+        if (accountId == null) return forMethod(method)
+        if (cashAndBank().none { it.id == accountId }) fail("Choose a cash, bank or wallet account.")
+        Settings.set("pay.account.$method", accountId.toString())
+        return accountId
+    }
+
+    /** Every account money can be paid from or into: everything under "Cash and bank" (1100), however deep. */
     fun cashAndBank(): List<Account> {
-        val parent = Db.scalarStr("SELECT id FROM accounts WHERE code='1100'")?.toLong()
-        return postable().filter { it.parentId == parent || it.sys in setOf("CASH", "BANK", "WALLET", "CHEQUES") }
+        val all = all()
+        val root = all.firstOrNull { it.code == "1100" }?.id
+        fun under(a: Account): Boolean { var p = a.parentId; while (p != null) { if (p == root) return true; p = all.firstOrNull { it.id == p }?.parentId }; return false }
+        return all.filter { !it.isGroup && it.active && (under(it) || it.sys in setOf("CASH", "BANK", "WALLET", "CHEQUES")) }
     }
 }
 

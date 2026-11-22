@@ -59,9 +59,10 @@ private fun StaffTab() {
         var viewV by remember { mutableStateOf<Long?>(null) }
         val given = remember(App.version, s.id) { pk.workshop.db.Db.query("""SELECT v.id, v.v_no, v.date, (SELECT sum(debit) FROM voucher_lines WHERE voucher_id=v.id) total
             FROM vouchers v WHERE v.ref_type='staff' AND v.ref_id=? AND v.vtype='CPV' ORDER BY v.date DESC LIMIT 12""", s.id) }
-        FormDialog("Advance to ${s.name}", { adv = null }, { if (App.act("Advance recorded") { StaffBook.giveAdvance(s.id, amt ?: 0, method, Dates.today()) }) adv = null }) {
+        var acct by remember { mutableStateOf<Long?>(null) }
+        FormDialog("Advance to ${s.name}", { adv = null }, { if (App.act("Advance recorded") { StaffBook.giveAdvance(s.id, amt ?: 0, method, Dates.today(), acct) }) adv = null }) {
             Text("Already owes ${Money.rs(StaffBook.advanceBalance(s.id))}. Advances are deducted when salary is paid.")
-            MoneyField("Amount", amt, { amt = it }); Dropdown("Paid by", Defaults.payMethods, method, { method = it })
+            MoneyField("Amount", amt, { amt = it }); Dropdown("Paid by", Defaults.payMethods, method, { method = it }); PayAccountPicker(method, acct, { acct = it })
             if (given.isNotEmpty()) {
                 Text("Advances given (click to change or delete)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
                 given.forEach { r -> TextButton({ viewV = r.long("id") }) { Text("${Dates.show(r.str("date"))} · ${r.str("v_no")} · ${Money.rs(r.long("total"))}") } }
@@ -126,10 +127,12 @@ private fun PayrollTab() {
         var basic by remember { mutableStateOf<Long?>(s.salary) }; var comm by remember { mutableStateOf<Long?>(StaffBook.commission(s.id, month)) }
         var advDed by remember { mutableStateOf<Long?>(minOf(StaffBook.advanceBalance(s.id), s.salary)) }; var other by remember { mutableStateOf<Long?>(0) }; var method by remember { mutableStateOf("Cash") }
         val net = (basic ?: 0) + (comm ?: 0) - (advDed ?: 0) - (other ?: 0)
-        FormDialog("Salary $month — ${s.name}", { pay = null }, { if (App.act("Salary paid") { StaffBook.paySalary(s.id, month, basic ?: 0, comm ?: 0, advDed ?: 0, other ?: 0, method, Dates.today()) }) pay = null }, saveText = "Pay ${Money.rs(net)}") {
+        var acct by remember { mutableStateOf<Long?>(null) }
+        FormDialog("Salary $month — ${s.name}", { pay = null }, { if (App.act("Salary paid") { StaffBook.paySalary(s.id, month, basic ?: 0, comm ?: 0, advDed ?: 0, other ?: 0, method, Dates.today(), acct) }) pay = null }, saveText = "Pay ${Money.rs(net)}") {
             MoneyField("Basic salary", basic, { basic = it }); MoneyField("Commission", comm, { comm = it })
             MoneyField("Advance deducted (owes ${plain(StaffBook.advanceBalance(s.id))})", advDed, { advDed = it }); MoneyField("Other deduction (absence, fine)", other, { other = it })
-            Dropdown("Paid by", Defaults.payMethods, method, { method = it }); Text("Net pay: ${Money.rs(net)}", fontWeight = FontWeight.SemiBold)
+            Dropdown("Paid by", Defaults.payMethods, method, { method = it }); PayAccountPicker(method, acct, { acct = it })
+            Text("Net pay: ${Money.rs(net)}", fontWeight = FontWeight.SemiBold)
         }
     }
 }

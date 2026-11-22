@@ -195,6 +195,7 @@ private fun ExpensesTab() {
     var acct by remember { mutableStateOf(expenseAccounts.firstOrNull()) }
     var amount by remember { mutableStateOf<Long?>(0) }
     var method by remember { mutableStateOf("Cash") }
+    var payAcct by remember { mutableStateOf<Long?>(null) }
     var narration by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(Dates.today()) }
     var attach by remember { mutableStateOf<java.io.File?>(null) }
@@ -205,6 +206,7 @@ private fun ExpensesTab() {
             Dropdown("Category", expenseAccounts, acct, { acct = it }, text = { it.name }, modifier = Modifier.fillMaxWidth())
             MoneyField("Amount", amount, { amount = it }, Modifier.fillMaxWidth())
             Dropdown("Paid by", Defaults.payMethods.filter { it != "Cheque" }, method, { method = it }, Modifier.fillMaxWidth())
+            PayAccountPicker(method, payAcct, { payAcct = it })
             Field("Details", narration, { narration = it }, Modifier.fillMaxWidth(), placeholder = "LESCO bill for September")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DateField("Date", date, { date = it }); TextButton({ attach = FilePick.open("Photo of the bill") }) { Text(attach?.name ?: "Attach bill photo") }
@@ -212,7 +214,7 @@ private fun ExpensesTab() {
             Button({ App.act("Expense saved") {
                 val saved = attach?.let { f -> val d = java.io.File(pk.workshop.security.Vault.dataDir, "attachments/expenses").apply { mkdirs() }
                     java.io.File(d, System.currentTimeMillis().toString() + "-" + f.name).also { f.copyTo(it) }.path }
-                Books.expense(date, acct?.id ?: fail("Choose a category."), amount ?: 0, method, narration, saved)
+                Books.expense(date, acct?.id ?: fail("Choose a category."), amount ?: 0, method, narration, saved, payAcct)
                 amount = 0; narration = ""; attach = null
             } }, Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Save expense") }
         }

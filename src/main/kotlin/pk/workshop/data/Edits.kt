@@ -206,6 +206,24 @@ object Edits {
         }
     }
 
+    /**
+     * Money a customer has with us (an advance, or an overpayment left after a bill was lowered) is used up by their
+     * unpaid bills, oldest first. Runs whenever a bill is made, so a new bill shows as paid when credit covers it.
+     */
+    fun applyCustomerCredit(customerId: Long) {
+        if (customerId == Customers.walkIn()) return
+        Db.query("""SELECT id FROM payments WHERE direction='IN' AND party_type='C' AND party_id=? AND coalesce(cheque_status,'')<>'Bounced'
+            AND amount + wht > (SELECT coalesce(sum(amount),0) FROM payment_allocations WHERE payment_id=payments.id) ORDER BY date, id""", customerId)
+            .forEach { reallocateReceipt(it.long("id")) }
+    }
+
+    /** Same for advances paid to a supplier, against their unpaid bills. */
+    fun applySupplierCredit(supplierId: Long) {
+        Db.query("""SELECT id FROM payments WHERE direction='OUT' AND party_type='S' AND party_id=?
+            AND amount > (SELECT coalesce(sum(amount),0) FROM payment_allocations WHERE payment_id=payments.id) ORDER BY date, id""", supplierId)
+            .forEach { reallocateSupplierPayment(it.long("id")) }
+    }
+
     /** Same for a supplier payment, against that supplier's unpaid bills. */
     fun reallocateSupplierPayment(paymentId: Long) {
         val p = Db.one("SELECT * FROM payments WHERE id=?", paymentId) ?: return
@@ -235,15 +253,15 @@ object Edits {
         Audit.log("delete", "payment", paymentId, "${p.str("pay_no")} ${p.str("method")} ${Money.rs(p.long("amount"))} ${Ledger.partyName(p.str("party_type"), p.long("party_id"))}")
     }
 
-    data class PaymentEdit(val amount: Long, val method: String, val reference: String, val date: String, val note: String, val wht: Long = 0, val chequeDate: String? = null)
+    data class PaymentEdit(val amount: Long, val method: String, val reference: String, val date: String, val note: String, val wht: Long = 0, val chequeDate: String? = null, val accountId: Long? = null)
 
     /** Changes a payment: it is replaced under the same number. */
     fun editPayment(paymentId: Long, e: PaymentEdit): Long = Db.tx {
         val p = Db.one("SELECT * FROM payments WHERE id=?", paymentId) ?: fail("Payment not found")
         if (p.str("cheque_status") in setOf("Cleared", "Bounced")) fail("This cheque is already ${p.str("cheque_status").lowercase()}. Undo that first (Billing › Cheques).")
         deletePayment(paymentId)
-        if (p.str("direction") == "IN") Billing.receive(p.long("party_id"), e.amount, e.method, e.reference, e.date, p.longOrNull("invoice_id"), e.wht, e.chequeDate, e.note, no = p.str("pay_no"), keepId = paymentId)
-        else Purchasing.paySupplier(p.long("party_id"), e.amount, e.method, e.reference, e.date, p.longOrNull("purchase_id"), e.note, no = p.str("pay_no"), keepId = paymentId)
+        if (p.str("direction") == "IN") Billing.receive(p.long("party_id"), e.amount, e.method, e.reference, e.date, p.longOrNull("invoice_id"), e.wht, e.chequeDate, e.note, no = p.str("pay_no"), keepId = paymentId, accountId = e.accountId)
+        else Purchasing.paySupplier(p.long("party_id"), e.amount, e.method, e.reference, e.date, p.longOrNull("purchase_id"), e.note, no = p.str("pay_no"), keepId = paymentId, accountId = e.accountId)
     }
 
     /** Puts a cleared or bounced cheque back to "in hand". */
@@ -321,6 +339,7 @@ object Edits {
             val a = minOf(amt, Billing.due(id)); if (a > 0) Db.insert("INSERT INTO payment_allocations(payment_id,invoice_id,amount) VALUES(?,?,?)", pid, id, a)
         }
         allocs.forEach { reallocateReceipt(it.first) }
+        applyCustomerCredit(customerId)
         Audit.log("edit", "invoice", id, "${inv.no}: ${Money.rs(inv.total)} → ${Money.rs(Billing.get(id).total)}")
         id
     }
@@ -361,6 +380,7 @@ object Edits {
             minOf(amt, due).takeIf { it > 0 }?.let { Db.insert("INSERT INTO payment_allocations(payment_id,purchase_id,amount) VALUES(?,?,?)", pid, id, it) }
         }
         allocs.forEach { reallocateSupplierPayment(it.first) }
+        applySupplierCredit(supplierId)
         Audit.log("edit", "purchase", id, "${p.docNo}: ${Money.rs(p.total)} → ${Money.rs(Purchasing.get(id).total)}")
         id
     }

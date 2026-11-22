@@ -9,12 +9,12 @@ import pk.workshop.db.fail
 /** Expenses, manual vouchers, daily cash closing. */
 object Books {
     /** A simple expense: Dr expense account / Cr cash, bank or wallet. */
-    fun expense(date: String, expenseAccountId: Long, amount: Long, method: String, narration: String, attachment: String?): Long {
+    fun expense(date: String, expenseAccountId: Long, amount: Long, method: String, narration: String, attachment: String?, accountId: Long? = null): Long {
         if (amount <= 0) fail("Enter an amount.")
         val a = Accounts.get(expenseAccountId)
         if (a.type != "EXPENSE") fail("Choose an expense account.")
         return Ledger.post("EXP", date, narration.ifBlank { a.name },
-            listOf(LedgerLine(expenseAccountId, debit = amount), LedgerLine(Accounts.forMethod(method), credit = amount)), "expense", null, attachment)
+            listOf(LedgerLine(expenseAccountId, debit = amount), LedgerLine(Accounts.forPayment(method, accountId), credit = amount)), "expense", null, attachment)
     }
 
     /**
@@ -109,10 +109,10 @@ object StaffBook {
 
     fun advanceBalance(staffId: Long) = Ledger.balance(Accounts.sys("STAFF_ADV"), partyType = "E", partyId = staffId)
 
-    fun giveAdvance(staffId: Long, amount: Long, method: String, date: String): Long {
+    fun giveAdvance(staffId: Long, amount: Long, method: String, date: String, accountId: Long? = null): Long {
         if (amount <= 0) fail("Enter an amount.")
         return Ledger.post("CPV", date, "Advance to ${get(staffId).name}",
-            listOf(LedgerLine(Accounts.sys("STAFF_ADV"), debit = amount, partyType = "E", partyId = staffId), LedgerLine(Accounts.forMethod(method), credit = amount)),
+            listOf(LedgerLine(Accounts.sys("STAFF_ADV"), debit = amount, partyType = "E", partyId = staffId), LedgerLine(Accounts.forPayment(method, accountId), credit = amount)),
             "staff", staffId)
     }
 
@@ -129,14 +129,14 @@ object StaffBook {
     fun payroll(month: String) = Db.query("SELECT p.*, s.name FROM payroll p JOIN staff s ON s.id=p.staff_id WHERE month=? ORDER BY s.name", month)
 
     /** Pays a month's salary: Dr Salaries + Commission / Cr Staff advances (deducted) + Cash/Bank. */
-    fun paySalary(staffId: Long, month: String, basic: Long, commission: Long, advanceDeducted: Long, otherDeduction: Long, method: String, date: String): Long = Db.tx {
+    fun paySalary(staffId: Long, month: String, basic: Long, commission: Long, advanceDeducted: Long, otherDeduction: Long, method: String, date: String, accountId: Long? = null): Long = Db.tx {
         if (Db.scalarLong("SELECT count(*) FROM payroll WHERE staff_id=? AND month=?", staffId, month) > 0) fail("Salary for $month is already paid.")
         if (advanceDeducted > advanceBalance(staffId)) fail("Deduction is more than the advance outstanding (${Money.rs(advanceBalance(staffId))}).")
         val net = basic + commission - advanceDeducted - otherDeduction
         if (net < 0) fail("Deductions are more than the pay.")
         val s = get(staffId)
         val ls = arrayListOf(LedgerLine(Accounts.sys("SALARIES"), debit = basic - otherDeduction), LedgerLine(Accounts.sys("COMMISSION"), debit = commission),
-            LedgerLine(Accounts.sys("STAFF_ADV"), credit = advanceDeducted, partyType = "E", partyId = staffId), LedgerLine(Accounts.forMethod(method), credit = net))
+            LedgerLine(Accounts.sys("STAFF_ADV"), credit = advanceDeducted, partyType = "E", partyId = staffId), LedgerLine(Accounts.forPayment(method, accountId), credit = net))
         val vid = Ledger.post("SAL", date, "Salary $month — ${s.name}", ls, "staff", staffId)
         Db.insert("""INSERT INTO payroll(staff_id,month,basic,commission,advance_deducted,other_deduction,net,method,voucher_id) VALUES(?,?,?,?,?,?,?,?,?)""",
             staffId, month, basic, commission, advanceDeducted, otherDeduction, net, method, vid)

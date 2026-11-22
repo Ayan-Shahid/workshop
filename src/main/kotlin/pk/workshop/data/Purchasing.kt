@@ -77,6 +77,7 @@ object Purchasing {
             listOf(LedgerLine(Accounts.sys("INVENTORY"), debit = total), LedgerLine(Accounts.sys("AP"), credit = total, partyType = "S", partyId = supplierId)),
             "purchase", id)
         if (payNow > 0) paySupplier(supplierId, payNow, payMethod, "", date, id)
+        if (keepId == null) Edits.applySupplierCredit(supplierId)
         Audit.log("create", "purchase", id, "$docNo ${Money.rs(total)}")
         id
     }
@@ -99,11 +100,11 @@ object Purchasing {
         id
     }
 
-    fun paySupplier(supplierId: Long, amount: Long, method: String, reference: String, date: String, purchaseId: Long? = null, note: String = "", no: String? = null, keepId: Long? = null): Long = Db.tx {
+    fun paySupplier(supplierId: Long, amount: Long, method: String, reference: String, date: String, purchaseId: Long? = null, note: String = "", no: String? = null, keepId: Long? = null, accountId: Long? = null): Long = Db.tx {
         if (amount <= 0) fail("Enter an amount.")
         @Suppress("NAME_SHADOWING") val no = no ?: Numbers.next("SP", date)
         val vid = Ledger.post("PAY", date, "Payment $no to ${Suppliers.get(supplierId).name} ($method${if (reference.isNotBlank()) " $reference" else ""})",
-            listOf(LedgerLine(Accounts.sys("AP"), debit = amount, partyType = "S", partyId = supplierId), LedgerLine(Accounts.forMethod(method), credit = amount)),
+            listOf(LedgerLine(Accounts.sys("AP"), debit = amount, partyType = "S", partyId = supplierId), LedgerLine(Accounts.forPayment(method, accountId), credit = amount)),
             "supplier_payment", null)
         val pid = Db.insert("""INSERT INTO payments(id,pay_no,date,direction,party_type,party_id,purchase_id,method,amount,reference,note,voucher_id)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", keepId, no, date, "OUT", "S", supplierId, purchaseId, method, amount, reference, note, vid)
