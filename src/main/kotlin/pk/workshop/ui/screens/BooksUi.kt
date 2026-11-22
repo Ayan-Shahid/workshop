@@ -387,7 +387,13 @@ private fun BankReconTab() {
 
 @Composable
 private fun ChartTab() {
-    val all = remember(App.version) { Accounts.all() }
+    // Shown as a tree: each account right under its group (siblings by code), whatever its code is
+    val all = remember(App.version) { Accounts.all().let { list ->
+        val kids = list.groupBy { a -> a.parentId?.takeIf { p -> list.any { it.id == p } } }
+        val out = ArrayList<Account>(); val seen = HashSet<Long>()
+        fun walk(parent: Long?) { for (a in kids[parent].orEmpty().sortedBy { it.code }) if (seen.add(a.id)) { out += a; walk(a.id) } }
+        walk(null); out + list.filter { it.id !in seen }
+    } }
     var edit by remember { mutableStateOf<Account?>(null) }
     Toolbar { Text("Built-in accounts are used by automatic postings; add your own under any group.", Modifier.weight(1f))
         Button({ edit = Account(0, "", "", "EXPENSE", all.firstOrNull { it.code == "5000" }?.id, null, false, true) }) { IconText(Icons.Default.Add, "New account") } }
