@@ -537,6 +537,47 @@ object Edits {
         }
     }
 
+    /** What a customer has on record, in words, for the delete box. Empty when there's nothing. */
+    fun customerHistory(id: Long): String {
+        fun n(sql: String) = Db.scalarLong(sql, id)
+        return listOfNotNull(
+            n("SELECT count(*) FROM invoices WHERE customer_id=? AND kind<>'Credit note'").takeIf { it > 0 }?.let { "$it bill(s)" },
+            n("SELECT count(*) FROM invoices WHERE customer_id=? AND kind='Credit note'").takeIf { it > 0 }?.let { "$it credit note(s)" },
+            n("SELECT count(*) FROM job_cards WHERE customer_id=?").takeIf { it > 0 }?.let { "$it job card(s)" },
+            n("SELECT count(*) FROM payments WHERE party_type='C' AND party_id=? AND method<>'Credit note'").takeIf { it > 0 }?.let { "$it payment(s)" },
+            n("""SELECT count(DISTINCT l.voucher_id) FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id WHERE l.party_type='C' AND l.party_id=?
+                AND coalesce(v.ref_type,'') NOT IN ('invoice','payment') AND v.id NOT IN (SELECT coalesce(voucher_id,0) FROM payments)""").takeIf { it > 0 }?.let { "$it other entr(ies), e.g. an opening balance" },
+        ).joinToString(", ")
+    }
+
+    /**
+     * Deletes a customer and everything recorded for them: credit notes, bills (their parts go back on the shelf),
+     * job cards, payments, opening balance and other entries, bookings and vehicles. Refused if any of it is in a locked month.
+     */
+    fun deleteCustomerAndHistory(id: Long) = Db.tx {
+        val c = Customers.get(id)
+        if (c.name == "Walk-in customer") fail("The walk-in customer is used by counter sales and can't be deleted.")
+        if (Db.scalarLong("SELECT count(*) FROM invoices WHERE insurer_id=? AND customer_id<>?", id, id) > 0)
+            fail("${c.name} is the insurer on other customers' bills. Change those bills first.")
+        Db.query("SELECT id FROM invoices WHERE customer_id=? AND kind='Credit note' ORDER BY id DESC", id).forEach { deleteInvoice(it.long("id"), reapply = false) }
+        Db.query("SELECT id FROM invoices WHERE customer_id=? ORDER BY id DESC", id).forEach { deleteInvoice(it.long("id"), reapply = false) }
+        Db.query("SELECT id FROM job_cards WHERE customer_id=? ORDER BY id DESC", id).forEach { deleteJob(it.long("id")) }
+        Db.query("SELECT id FROM payments WHERE party_type='C' AND party_id=? ORDER BY id DESC", id).forEach { deletePayment(it.long("id")) }
+        // Opening balance and any other entry on their account
+        Db.query("SELECT DISTINCT voucher_id FROM voucher_lines WHERE party_type='C' AND party_id=?", id).forEach { r ->
+            val vid = r.long("voucher_id")
+            if (Db.scalarLong("SELECT count(*) FROM voucher_lines WHERE voucher_id=? AND party_id IS NOT NULL AND NOT (party_type='C' AND party_id=?)", vid, id) > 0)
+                fail("Voucher ${Ledger.voucher(vid).no} also involves someone else. Change or delete it in Bookkeeping first.")
+            dropVoucher(vid)
+        }
+        Db.exec("DELETE FROM bookings WHERE customer_id=?", id)
+        Db.exec("DELETE FROM loyalty_moves WHERE customer_id=?", id)
+        Db.exec("DELETE FROM messages WHERE ref_type='customer' AND ref_id=?", id)
+        Db.exec("DELETE FROM vehicles WHERE customer_id=?", id)
+        Db.exec("DELETE FROM customers WHERE id=?", id)
+        Audit.log("delete", "customer", id, "${c.name} with all history")
+    }
+
     fun deleteVehicle(id: Long) = Db.tx {
         val v = Vehicles.get(id)
         val jobs = Db.scalarLong("SELECT count(*) FROM job_cards WHERE vehicle_id=?", id) + Db.scalarLong("SELECT count(*) FROM invoices WHERE vehicle_id=?", id)

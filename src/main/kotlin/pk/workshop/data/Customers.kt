@@ -30,12 +30,20 @@ object Customers {
     private fun map(r: Row) = Customer(r.long("id"), r.str("name"), r.str("phone"), r.str("phone2"), r.str("cnic"), r.str("address"), r.str("city"),
         r.str("ctype"), r.str("ntn"), r.long("credit_limit"), r.int("terms_days"), r.long("points"), r.str("notes"), r.bool("active"))
 
-    fun list(search: String = "", type: String? = null): List<Customer> {
+    /** Customers matching a search. Archived ones are listed only when [archived] is true (and then only those). */
+    fun list(search: String = "", type: String? = null, archived: Boolean = false): List<Customer> {
         val s = "%${search.trim()}%"
         return Db.query("""SELECT * FROM customers c WHERE (name LIKE ? OR phone LIKE ? OR phone2 LIKE ? OR cnic LIKE ?
             OR EXISTS(SELECT 1 FROM vehicles v WHERE v.customer_id=c.id AND (replace(v.reg_no,'-','') LIKE replace(?,'-','') OR v.chassis_no LIKE ?)))
-            AND (? IS NULL OR ctype=?) ORDER BY active DESC, name LIMIT 2000""", s, s, s, s, s, s, type, type).map(::map)
+            AND (? IS NULL OR ctype=?) AND active=? ORDER BY name LIMIT 2000""", s, s, s, s, s, s, type, type, !archived).map(::map)
     }
+
+    fun restore(id: Long) { Db.exec("UPDATE customers SET active=1 WHERE id=?", id); Audit.log("restore", "customer", id) }
+
+    /** Every ledger entry on the customer's account (bills, payments, opening balance, adjustments), newest first. */
+    fun entries(id: Long) = Db.query("""SELECT v.id vid, v.v_no, v.vtype, v.date, v.narration, l.debit, l.credit,
+            (SELECT p.id FROM payments p WHERE p.voucher_id=v.id) pay_id, CASE WHEN v.ref_type='invoice' THEN v.ref_id END inv_id
+        FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id WHERE l.party_type='C' AND l.party_id=? ORDER BY v.date DESC, v.id DESC""", id)
 
     fun get(id: Long) = Db.one("SELECT * FROM customers WHERE id=?", id)?.let(::map) ?: fail("Customer not found")
 

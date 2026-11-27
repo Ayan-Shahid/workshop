@@ -26,7 +26,8 @@ fun CustomersScreen() {
     var q by remember { mutableStateOf("") }
     var type by remember { mutableStateOf<String?>(null) }
     var add by remember { mutableStateOf(false) }
-    val list = remember(App.version, q, type) { Customers.list(q, type) }
+    var archived by remember { mutableStateOf(false) }
+    val list = remember(App.version, q, type, archived) { Customers.list(q, type, archived) }
     val balances = remember(App.version) {
         Db.query("SELECT party_id, sum(debit)-sum(credit) b FROM voucher_lines WHERE party_type='C' AND account_id=? GROUP BY party_id", Accounts.sys("AR"))
             .associate { it.long("party_id") to it.long("b") }
@@ -40,12 +41,14 @@ fun CustomersScreen() {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 12.dp)) {
             FilterChip(type == null, { type = null }, { Text("All") })
             Defaults.customerTypes.forEach { t -> FilterChip(type == t, { type = if (type == t) null else t }, { Text(t) }) }
+            Spacer(Modifier.width(12.dp))
+            FilterChip(archived, { archived = !archived }, { Text("Archived") }, leadingIcon = { Icon(Icons.Default.Inventory2, null, Modifier.size(16.dp)) })
         }
         DataTable(list, listOf(
-            C("Name", 1.6f) { it.name + if (!it.active) " (inactive)" else "" }, C("Phone", 1.1f) { it.phone }, C("Type", 1.1f) { it.type }, C("City", 0.9f) { it.city },
+            C("Name", 1.6f) { it.name + if (!it.active) " (archived)" else "" }, C("Phone", 1.1f) { it.phone }, C("Type", 1.1f) { it.type }, C("City", 0.9f) { it.city },
             C("Credit limit", 0.9f, true) { if (it.creditLimit > 0) plain(it.creditLimit) else "" }, C("Points", 0.6f, true) { if (it.points > 0) it.points.toString() else "" },
             C("Owes", 1f, true, content = { c -> val b = balances[c.id] ?: 0; Text(if (b != 0L) plain(b) else "", color = if (b > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium) }),
-        ), Modifier.fillMaxSize(), onClick = { App.go(Screen.Customer(it.id)) }, empty = "No customers")
+        ), Modifier.fillMaxSize(), onClick = { App.go(Screen.Customer(it.id)) }, empty = if (archived) "No archived customers" else "No customers")
     }
     if (add) CustomerForm(Customer(type = "Regular"), { add = false }) { id -> add = false; App.go(Screen.Customer(id)) }
 }
@@ -65,12 +68,17 @@ fun CustomerScreen(id: Long) {
     var stmt by remember { mutableStateOf(false) }
     var openInv by remember { mutableStateOf<Long?>(null) }
     var newJob by remember { mutableStateOf(false) }
-    Page(c.name, back = true, actions = {
+    var askDelete by remember { mutableStateOf(false) }
+    var tab by remember { mutableStateOf(0) }
+    var openPay by remember { mutableStateOf<Long?>(null) }
+    var openVoucher by remember { mutableStateOf<Long?>(null) }
+    val entries = remember(App.version, id) { Customers.entries(id) }
+    Page(c.name + if (!c.active) " (archived)" else "", back = true, actions = {
         OutlinedButton({ edit = true }) { IconText(Icons.Default.Edit, "Edit") }
-        DeleteButton("Delete ${c.name}?", "A customer with no bills, jobs or payments is erased together with their vehicles. " +
-            "One with history is archived (hidden from lists) instead, so old bills and statements stay correct.") {
-            var r: Edits.Removed? = null
-            if (App.act { r = Edits.deleteCustomer(id) }) { App.toast(Edits.message(r!!, c.name)); App.goBack() }
+        if (!c.active) Button({ App.act("${c.name} restored") { Customers.restore(id) } }) { IconText(Icons.Default.Unarchive, "Restore") }
+        TextButton({ askDelete = true }) {
+            Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(4.dp))
+            Text("Delete", color = MaterialTheme.colorScheme.error)
         }
         OutlinedButton({ stmt = true }) { IconText(Icons.Default.Description, "Statement") }
         if (balance > 0) OutlinedButton({ App.act { WhatsApp.send(c.phone, WhatsApp.paymentReminderText(c.name, balance), "customer", id) } }) { IconText(Icons.Default.Chat, "Payment reminder") }
@@ -106,10 +114,25 @@ fun CustomerScreen(id: Long) {
                     if (vehicles.isNotEmpty()) Button({ newJob = true }, Modifier.padding(top = 8.dp)) { IconText(Icons.Default.Build, "New job card") }
                 }
             }
-            Section("Bills", Modifier.weight(1.5f).fillMaxHeight()) {
-                DataTable(invoices, listOf(C("No", 1.2f) { it.no }, C("Date", 0.9f) { Dates.show(it.date) }, C("Vehicle", 1.3f) { it.vehicle },
+            Column(Modifier.weight(1.5f).fillMaxHeight()) {
+                Tabs(listOf("Bills", "Account entries (${entries.size})"), tab) { tab = it }
+                if (tab == 0) DataTable(invoices, listOf(C("No", 1.2f) { it.no }, C("Date", 0.9f) { Dates.show(it.date) }, C("Vehicle", 1.3f) { it.vehicle },
                     C("Total", 1f, true) { plain(it.total) }, C("Due", 1f, true) { if (it.kind == "Credit note") "" else plain(it.due) }),
                     Modifier.fillMaxSize(), onClick = { openInv = it.id }, empty = "No bills yet")
+                else {
+                    Text("Everything on ${c.name}'s account: bills, payments, opening balance and adjustments. Click one to change or delete it.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+                    DataTable(entries, listOf(C("Date", 0.9f) { Dates.show(it.str("date")) }, C("No", 1.1f) { it.str("v_no") }, C("Details", 2.4f) { it.str("narration") },
+                        C("Charged", 0.9f, true) { if (it.long("debit") > 0) plain(it.long("debit")) else "" },
+                        C("Paid / credit", 0.9f, true) { if (it.long("credit") > 0) plain(it.long("credit")) else "" }),
+                        Modifier.fillMaxSize(), empty = "Nothing on this account yet", onClick = { r ->
+                            when {
+                                r.longOrNull("pay_id") != null -> openPay = r.long("pay_id")
+                                r.longOrNull("inv_id") != null -> openInv = r.long("inv_id")
+                                else -> openVoucher = r.long("vid")
+                            }
+                        })
+                }
             }
         }
     }
@@ -135,6 +158,23 @@ fun CustomerScreen(id: Long) {
         }
     }
     if (stmt) StatementDialog("C", id) { stmt = false }
+    openPay?.let { PaymentDialog(it) { openPay = null } }
+    openVoucher?.let { VoucherDialog(it) { openVoucher = null } }
+    if (askDelete) {
+        val history = remember { Edits.customerHistory(id) }
+        if (history.isEmpty()) Confirm("Delete ${c.name}?", "${c.name} and their vehicles are deleted.", "Delete",
+            { if (App.act("${c.name} deleted") { Edits.deleteCustomerAndHistory(id) }) App.goBack() }) { askDelete = false }
+        else FormDialog("Delete ${c.name}?", { askDelete = false }, null, width = 600.dp, extraButtons = {
+            if (c.active) OutlinedButton({ askDelete = false; App.act("${c.name} archived (hidden from lists)") { Edits.deleteCustomer(id) } }) { Text("Archive instead") }
+            Button({ askDelete = false; if (App.act("${c.name} and all their records deleted") { Edits.deleteCustomerAndHistory(id) }) App.goBack() }) { Text("Delete everything") }
+        }) {
+            Text("${c.name} has $history.", fontWeight = FontWeight.SemiBold)
+            Text("Delete everything: their bills, job cards, payments and opening balance are removed from the books as if they never happened. " +
+                "Parts on their bills go back on the shelf, and cash or bank balances change by the payments removed.")
+            Text("Archive instead: everything stays in the books and reports; ${c.name} is just hidden from lists (find them again with the Archived filter).",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
     openInv?.let { InvoiceDialog(it) { openInv = null } }
     if (newJob) NewJobDialog({ newJob = false }, prefill = Booking(customerId = id, vehicleId = vehicles.firstOrNull()?.id, name = c.name, whenAt = Dates.now())) { j ->
         newJob = false; App.go(Screen.Job(j))

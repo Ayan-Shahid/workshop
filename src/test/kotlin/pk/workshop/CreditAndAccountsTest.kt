@@ -73,3 +73,34 @@ class ChartLoopTest {
         Db.close()
     }
 }
+
+class CustomerDeleteTest {
+    @Test fun deleteCustomerWithEverything() {
+        val dir = kotlin.io.path.createTempDirectory("wscust").toFile()
+        System.setProperty("workshop.dataDir", dir.path)
+        System.setProperty("workshop.demo", "1")
+        try { assertTrue(Demo.maybeStart()) } finally { System.clearProperty("workshop.demo") }
+        val cash = Accounts.sys("CASH")
+        // Like the video: a customer with only an advance payment
+        val c = Customers.save(Customer(name = "Ayaz Test", phone = "0321-5659541"))
+        val before = Ledger.balance(cash)
+        Billing.receive(c, 1000_00, "Cash", "", Dates.today())
+        assertEquals(-1000_00, Customers.balance(c))
+        assertTrue(Edits.customerHistory(c).contains("1 payment"))
+        assertEquals(Edits.Removed.ARCHIVED, Edits.deleteCustomer(c))
+        assertTrue(Customers.list("Ayaz").none { it.id == c }, "archived customers are hidden")
+        assertTrue(Customers.list("Ayaz", archived = true).any { it.id == c })
+        Edits.deleteCustomerAndHistory(c)
+        assertEquals(0, Db.scalarLong("SELECT count(*) FROM customers WHERE id=?", c))
+        assertEquals(before, Ledger.balance(cash), "the advance came back out of cash")
+        // A demo customer with bills, jobs and payments, in open months
+        val busy = Db.query("SELECT customer_id FROM invoices GROUP BY customer_id ORDER BY max(date) DESC").map { it.long("customer_id") }
+            .first { it != Customers.walkIn() && Db.scalarLong("SELECT count(*) FROM invoices WHERE insurer_id=? AND customer_id<>?", it, it) == 0L &&
+                Db.scalarLong("SELECT count(*) FROM invoices WHERE customer_id=? AND date < ?", it, Dates.monthStart()) == 0L }
+        Edits.deleteCustomerAndHistory(busy)
+        assertEquals(0, Db.scalarLong("SELECT count(*) FROM invoices WHERE customer_id=?", busy))
+        val tb = Ledger.trialBalance(Dates.today())
+        assertEquals(tb.sumOf { it.debit }, tb.sumOf { it.credit })
+        Db.close()
+    }
+}
